@@ -19,6 +19,17 @@ export function probeToolBodyCalls(): readonly string[] {
 /** Forgets recorded body invocations. */
 export function resetProbeToolBodyCalls(): void {
   bodyCalls.length = 0
+  failMode = false
+}
+
+let failMode = false
+
+/**
+ * When armed the body still records the invocation and then fails, so a test can tell
+ * "the tool ran and failed" apart from "the tool never ran".
+ */
+export function setProbeToolFailure(fail: boolean): void {
+  failMode = fail
 }
 
 /** The probe tool definition, ready for `ctx.tools.register`. */
@@ -40,6 +51,7 @@ export const probeTool = defineTool({
   },
   async execute(args) {
     bodyCalls.push(args.note)
+    if (failMode) throw new Error('probe-tool: fixed synthetic failure')
     return { note: args.note }
   },
 })

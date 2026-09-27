@@ -68,6 +68,7 @@ test('property: anything removed is reported', () => {
 })
 
 const arbObs = (sequence: number): fc.Arbitrary<CallObservation> => fc.record({
+  scopeKey: fc.constantFrom('session-A', 'session-B'),
   toolName: fc.constantFrom('deploy', 'read_file'),
   normalizedArguments: fc.record({ target: fc.constantFrom('staging', 'prod') }) as fc.Arbitrary<JsonValue>,
   status: fc.constant('failure' as const),
@@ -101,6 +102,7 @@ test('property: a path cannot pause before the configured identical-failure limi
 test('property: identical failures in a row reach the limit exactly once counting is monotonic', () => {
   fc.assert(fc.property(fc.integer({ min: 1, max: 8 }), (n) => {
     const same = Array.from({ length: n }, (_, i) => ({
+      scopeKey: 'session-A',
       toolName: 'deploy',
       normalizedArguments: { target: 'staging' } as JsonValue,
       status: 'failure' as const,
@@ -122,11 +124,18 @@ test('property: a success clears the path it belongs to', () => {
     const first = list[0] as CallObservation
     const one = list.map((o, i) => ({
       ...o,
+      scopeKey: first.scopeKey,
       toolName: first.toolName,
       normalizedArguments: first.normalizedArguments,
       observationSequence: i + 1,
     }))
-    const cleared = reduce([...one, { ...one[one.length - 1] as CallObservation, status: 'success', observationSequence: one.length + 1 }])
-    return Object.keys(cleared.store).length === 0
+    const success = { ...one[one.length - 1] as CallObservation, status: 'success' as const, observationSequence: one.length + 1 }
+    if (Object.keys(reduce([...one, success]).store).length !== 0) return false
+    // Clearing one scope may not disturb another. Path keys are digests, so compare the
+    // other scope's store against what it would have become on its own.
+    const other = one.map(o => ({ ...o, scopeKey: `${o.scopeKey}-other` }))
+    const alone = JSON.stringify(reduce(other).store)
+    const mixed = JSON.stringify(reduce([...one, ...other, success]).store)
+    return alone === mixed
   }), { numRuns: 300 })
 })

@@ -7,8 +7,8 @@ import type {
 } from 'jey-contracts'
 import {
   AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, assessmentState, buildSnapshot, checkEgress,
-  compileAssessment, evaluatePolicy, fitToBudget, loadConfig, mintAuditId, observeCall, sha256, shouldBlockDispatch,
-  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type ProgressStore, type StateSection,
+  compileAssessment, evaluatePolicy, fitToBudget, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
+  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type StateSection,
 } from 'jey-core'
 import { MockProvider } from './providers/mock.ts'
 import { ExpectedProvider } from './identity.ts'
@@ -57,6 +57,35 @@ function textOf(value: unknown, limit = 400): string {
   }
   walk(value)
   return parts.join(' ').slice(0, limit)
+}
+
+/**
+ * The one place that turns a host execution into a progress path identity. Both the
+ * synchronous guard and the post-result update go through here: they disagreed once
+ * (the guard searched for a tool name inside a digest key), and a pause that is written
+ * under one identity and read under another is a pause that never happens.
+ *
+ * `agent.id` is DSH's `SessionId` — an agent handle *is* its session identity, so there
+ * is no separate session field to read here.
+ */
+interface Executable {
+  readonly name: string
+  readonly arguments: unknown
+  readonly agent?: { readonly id: string } | undefined
+  readonly rootCallId?: string | undefined
+}
+
+function pathIdentity(exec: Executable): PathIdentity {
+  return {
+    scopeKey: exec.agent?.id ?? 'agentless',
+    toolName: exec.name,
+    normalizedArguments: exec.arguments as JsonValue,
+  }
+}
+
+const hardRulesFor = (progress: ProgressStore, exec: Executable): string[] => {
+  const paused = pausedPath(progress, pathIdentity(exec))
+  return paused === undefined ? [] : [`path-paused:${paused.fingerprint.slice(0, 16)}`]
 }
 
 export interface FileSinkOptions {
@@ -301,13 +330,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     }
   }
 
-  const hardRules = (toolName: string): string[] => {
-    const violations: string[] = []
-    if (config.features.toolAssessment && config.mode === 'enforce' && !config.features.toolAssessment) violations.push('assessment-disabled')
-    const paused = Object.entries(runtime.progress).find(([key, state]) => state.paused && key.includes(toolName))
-    if (paused !== undefined) violations.push(`path-paused:${paused[0].slice(0, 24)}`)
-    return violations
-  }
+  const hardRules = (exec: Executable): string[] => hardRulesFor(runtime.progress, exec)
 
   const errorOutcomes = (request: DecisionRequest, code: ErrorCode): readonly QuestionOutcome[] =>
     request.questions.map(q => ({ id: q.id, status: 'error' as const, code, retryable: false }))
@@ -346,7 +369,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       arguments: exec.arguments as JsonValue,
       approvalChannel,
     })
-    const violations = hardRules(exec.name)
+    const violations = hardRules(exec)
 
     if (neededBytes !== null) {
       // The call's own arguments did not fit. Trimming them and answering anyway would
@@ -472,8 +495,8 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   // Network-free by construction: nothing here may await, so it can only speak about
   // facts the plugin already holds.
   const guardOff = ctx.tools.guard(execution => {
-    const hit = Object.entries(runtime.progress).find(([key, state]) => state.paused && key.includes(execution.name))
-    return hit === undefined ? undefined : `jey: repeated identical failure on "${execution.name}"`
+    const violations = hardRules(execution)
+    return violations.length > 0 ? `jey: ${violations.join(', ')}` : undefined
   })
 
   const resultOff = ctx.on('tools/result', (exec, result) => {
@@ -481,12 +504,16 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })
     if (recentResults.length > HISTORY_CAP) recentResults.shift()
     runtime.progress = observeCall(runtime.progress, {
-      toolName: exec.name,
-      normalizedArguments: exec.arguments as JsonValue,
+      ...pathIdentity(exec),
       status: result.isError ? 'failure' : 'success',
       deterministicError: null,
+      // DSH exposes no resource-version signal on a settled result, so a repeat is
+      // judged on tool and arguments alone. Claiming `{}` were "no change observed"
+      // would be a guess about facts the host never offered.
       resourceVersions: {},
       rootCallId: exec.rootCallId ?? null,
+      // Likewise nothing here identifies a status poll; a repeated failing call counts
+      // as a repeated failing call.
       isPoll: false,
       observationSequence: sequence,
     }, {

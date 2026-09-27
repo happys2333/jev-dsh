@@ -12,6 +12,7 @@ import {
 
 function obs(overrides: Partial<CallObservation> = {}): CallObservation {
   return {
+    scopeKey: 'session-1',
     toolName: 'deploy',
     normalizedArguments: { target: 'staging' },
     status: 'failure',
@@ -114,15 +115,39 @@ test('a poll sequence does not feed the identical-failure counter', () => {
   assert.equal(state?.paused, false)
 })
 
-test('children of one root call accumulate on the root path, not their own', () => {
-  const outer = obs({ rootCallId: null, observationSequence: 1 })
+test('one attempt is counted once, not once per nested dispatch', () => {
+  // A parent result and its PTC children share the host-resolved rootCallId. Counting
+  // each of them would reach the failure limit inside a single turn.
+  const parent = obs({ rootCallId: 'root-1', observationSequence: 1 })
   const child = obs({ toolName: 'inner', normalizedArguments: { a: 1 }, rootCallId: 'root-1', observationSequence: 2 })
-  const sibling = obs({ toolName: 'other-inner', normalizedArguments: { b: 2 }, rootCallId: 'root-1', observationSequence: 3 })
-  const { store, kinds } = run([outer, child, sibling])
-  assert.equal(kinds[1], 'repeat-failure')
-  assert.equal(kinds[2], 'repeat-failure', 'both children roll up to the root path')
-  assert.equal(Object.keys(store).length, 2)
-  assert.ok('root-1' in store)
+  const replay = obs({ rootCallId: 'root-1', observationSequence: 3 })
+  const { store, kinds } = run([parent, child, replay])
+  assert.deepEqual(kinds, ['repeat-failure', 'repeat-failure', 'ignored-duplicate'])
+  assert.deepEqual(Object.values(store).map(s => s.count).sort(), [1, 1],
+    'a replayed attempt must not inflate any path')
+})
+
+test('a pause survives across fresh root call ids', () => {
+  // The host mints a new rootCallId per model-requested call. If the path were keyed by
+  // it, three identical failures in three turns would each start at count 1 and the
+  // pause would be unreachable in real use.
+  const { store, kinds } = run([
+    obs({ rootCallId: 'call-1', observationSequence: 1 }),
+    obs({ rootCallId: 'call-2', observationSequence: 2 }),
+    obs({ rootCallId: 'call-3', observationSequence: 3 }),
+  ])
+  assert.deepEqual(kinds, ['repeat-failure', 'repeat-failure', 'path-paused'])
+  assert.equal(isPathPaused(store, { scopeKey: 'session-1', toolName: 'deploy', normalizedArguments: { target: 'staging' } }), true)
+})
+
+test('two scopes repeating the same call do not share a counter', () => {
+  const { store, kinds } = run([
+    obs({ scopeKey: 'session-A', observationSequence: 1 }),
+    obs({ scopeKey: 'session-A', observationSequence: 2 }),
+    obs({ scopeKey: 'session-B', observationSequence: 3 }),
+  ])
+  assert.deepEqual(kinds, ['repeat-failure', 'repeat-failure', 'repeat-failure'])
+  assert.equal(Object.values(store).every(s => s.count < 3), true, 'session B must not inherit A twice-failed path')
 })
 
 test('a replayed result with a non-advancing sequence is ignored', () => {

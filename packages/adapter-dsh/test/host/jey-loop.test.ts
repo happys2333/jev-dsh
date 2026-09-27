@@ -17,8 +17,12 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { ConfigError, scanJournal, type AuditEvent, type LineSink } from 'jey-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
 import { MockProvider } from '../../src/providers/mock.ts'
-import { PROBE_TOOL_NAME, probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../src/probe-tool.ts'
-import { PROBE_LLM_ROUTE, scriptedLlmPlugin } from '../../src/scripted-llm.ts'
+import {
+  PROBE_TOOL_NAME, probeTool, probeToolBodyCalls, resetProbeToolBodyCalls, setProbeToolFailure,
+} from '../../src/probe-tool.ts'
+import {
+  PROBE_LLM_ROUTE, REPEAT_LLM_ROUTE, repeatingProbeLlmPlugin, scriptedLlmPlugin,
+} from '../../src/scripted-llm.ts'
 
 function jeyConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -41,18 +45,31 @@ interface Loop {
   readonly lines: string[]
 }
 
-async function mountLoop(config: Record<string, unknown>, answers?: Record<string, number>): Promise<Loop> {
+interface LoopOptions {
+  /** Ask for the probe tool on every step instead of exactly once. */
+  readonly repeat?: boolean
+  /** Make the tool body record the call and then fail. */
+  readonly failTool?: boolean
+}
+
+async function mountLoop(
+  config: Record<string, unknown>,
+  answers?: Record<string, number>,
+  options: LoopOptions = {},
+): Promise<Loop> {
   resetProbeToolBodyCalls()
+  setProbeToolFailure(options.failTool === true)
   const lines: string[] = []
   const audit: LineSink = { writeLine: line => { lines.push(line) } }
   const provider = new MockProvider(answers)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(scriptedLlmPlugin)
+  const route = options.repeat === true ? REPEAT_LLM_ROUTE : PROBE_LLM_ROUTE
+  await ctx.plugin(options.repeat === true ? repeatingProbeLlmPlugin : scriptedLlmPlugin)
   ctx.tools.register(probeTool)
   const runtime = mountJey(ctx, config, { provider, audit })
   const harness = await mountAgentLoopTestHarness(ctx)
-  const agent = await harness.create(SessionId('jey-loop-agent'), { provider: PROBE_LLM_ROUTE, model: 'loop-model' })
+  const agent = await harness.create(SessionId('jey-loop-agent'), { provider: route, model: 'loop-model' })
   return { ctx, agent, runtime, provider, lines }
 }
 
@@ -116,21 +133,23 @@ describe('Jey closed loop on a real DSH agent', () => {
     })
   })
 
-  it('denies a paused path on deterministic rules alone, without reaching a provider', async () => {
-    const loop = await mountLoop(jeyConfig({ mode: 'shadow' }))
-    // The pause is a recorded fact about what already happened, so it needs no model and
-    // no permission to guess: it holds even in shadow, which is also what the sync guard does.
-    loop.runtime.progress = {
-      [PROBE_TOOL_NAME]: { fingerprint: 'frozen', count: 3, polls: 0, paused: true, lastSequence: 0 },
-    }
-    await runTurn(loop.ctx, loop.agent, 'note this down')
+  it('pauses a path after three real failures and blocks the fourth before dispatch', async () => {
+    // Everything here goes through the production write path: the tool genuinely fails,
+    // `tools/result` genuinely records it, and the fourth call must be refused because of
+    // what was recorded. Seeding a pause by hand would prove nothing about the wiring.
+    const loop = await mountLoop(
+      jeyConfig({ limits: { maxIdenticalFailures: 3 } }),
+      undefined,
+      { repeat: true, failTool: true },
+    )
+    for (let turn = 0; turn < 4; turn += 1) await runTurn(loop.ctx, loop.agent, 'repeat the same safe call')
 
-    assert.equal(loop.provider.calls, 0, 'a hard rule must not pay for a model call')
-    assert.deepEqual(probeToolBodyCalls(), [], 'the tool body never ran')
-    const [record] = decisions(loop.runtime)
-    assert.equal(record?.action, 'deny')
-    assert.ok(record?.reasonCodes.some(c => c.startsWith('hard-rule:path-paused')))
-    assert.equal(scanJournal(`${loop.lines.join('\n')}\n`).confirmed.length, 1)
+    assert.equal(probeToolBodyCalls().length, 3, 'the fourth identical failing call must never reach the body')
+    assert.equal(loop.provider.calls, 3, 'a recorded fact needs no model, so the paused turn must not pay for one')
+    const paused = decisions(loop.runtime).at(-1)
+    assert.equal(paused?.action, 'deny')
+    assert.ok(paused?.reasonCodes.some(c => c.startsWith('hard-rule:path-paused')), JSON.stringify(paused?.reasonCodes))
+    assert.equal(scanJournal(`${loop.lines.join('\n')}\n`).confirmed.length, 4)
     loop.runtime.close()
   })
 

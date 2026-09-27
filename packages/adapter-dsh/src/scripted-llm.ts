@@ -16,8 +16,8 @@ export const PROBE_LLM_ROUTE = 'jey-probe'
 /** Text the script asks the model to echo through the probe tool. */
 export const PROBE_TOOL_NOTE = 'probe-note-1'
 
-function toolCallChunks(): StreamChunk[] {
-  const id = ToolCallId('probe-call-1')
+function toolCallChunks(id = 'probe-call-1'): StreamChunk[] {
+  const callId = ToolCallId(id)
   // JEY_PROBE_ARG_KEYS makes the call carry a wide *structure* instead of a short note,
   // so a host test can drive the request genuinely past a state byte budget. Shortening
   // leaves cannot help a structure, which is what the insufficient-context path is about.
@@ -27,8 +27,8 @@ function toolCallChunks(): StreamChunk[] {
     : JSON.stringify({ note: PROBE_TOOL_NOTE })
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id, name: PROBE_TOOL_NAME, argumentsDelta: args },
-    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: PROBE_TOOL_NAME, arguments: args } },
+    { type: 'tool-call-delta', index: 0, id: callId, name: PROBE_TOOL_NAME, argumentsDelta: args },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: PROBE_TOOL_NAME, arguments: args } },
     { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ]
@@ -61,7 +61,6 @@ export class ScriptedProbeLlm extends LlmAdapter {
 
 /** Plugin name reported to the Cordis registry. */
 export const name = 'jey-probe-llm'
-
 /** Services the adapter plugin needs. */
 export const inject = ['llm']
 
@@ -75,3 +74,38 @@ export function apply(ctx: Context): void {
 
 /** The plugin object form, for `ctx.plugin(scriptedLlmPlugin)`. */
 export const scriptedLlmPlugin = { name, inject, apply }
+
+/** Provider route for the repeating adapter; matches `AgentOptions.provider`. */
+export const REPEAT_LLM_ROUTE = 'jey-probe-repeat'
+
+/**
+ * Asks for the probe tool on every other step, so a test can drive repeated identical
+ * calls through the real loop.
+ *
+ * Each attempt carries a fresh tool-call id, because the host mints a new root call id
+ * per model-requested call. Reusing one constant id is what let a pause implementation
+ * keyed by call identity look as if it accumulated.
+ */
+export class RepeatingProbeLlm extends LlmAdapter {
+  /** Every request the loop actually dispatched, for request-level assertions. */
+  readonly requests: GenerateOptions[] = []
+  #steps = 0
+
+  override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(options)
+    const chunks = this.#steps % 2 === 0
+      ? toolCallChunks(`probe-call-${this.#steps / 2}`)
+      : textChunks('repeat-answer')
+    this.#steps += 1
+    for (const chunk of chunks) yield chunk
+  }
+}
+
+/** Registers {@link RepeatingProbeLlm} under {@link REPEAT_LLM_ROUTE}. */
+export const repeatingProbeLlmPlugin = {
+  name: 'jey-probe-repeat-llm',
+  inject: ['llm'],
+  apply(ctx: Context): void {
+    ctx.llm.registerAdapter([REPEAT_LLM_ROUTE], new RepeatingProbeLlm())
+  },
+}
