@@ -138,6 +138,7 @@ describe('Jey closed loop on a real DSH agent', () => {
     assert.equal(loop.provider.calls, 1, 'the provider was consulted')
 
     const [record] = decisions(loop.runtime)
+
     assert.ok(record, 'expected one decision record')
     assert.equal(record.action, 'abstain')
     assert.equal(record.hostDecision, 'allow')
@@ -146,10 +147,11 @@ describe('Jey closed loop on a real DSH agent', () => {
     assert.equal(record.snapshot.taskVersion, 1, 'the user message reached the task state')
     const written = scanJournal(`${loop.lines.join('\n')}\n`)
     assert.deepEqual(written.isolated, [])
-    // One decision row, and the execution row that now follows it: the decision alone
-    // cannot say whether the call worked, which is why the second row exists.
-    assert.deepEqual(written.confirmed.map(r => r.kind), ['decision', 'execution'])
-    const execution = written.confirmed[1]
+    // The mount row, then one decision row, then the execution row that follows it: the
+    // decision alone cannot say whether the call worked, which is why the third exists.
+    assert.deepEqual(written.confirmed.map(r => r.kind), ['diagnostic', 'decision', 'execution'])
+    assert.equal((written.confirmed[0] as { reason: string }).reason, 'mounted:mode=shadow provider=mock egress=deny')
+    const execution = written.confirmed.find(r => r.kind === 'execution')
     if (execution?.kind === 'execution') {
       assert.equal(execution.status, 'succeeded')
       assert.equal(execution.requestId, record.requestId, 'the two rows must correlate')
@@ -163,7 +165,12 @@ describe('Jey closed loop on a real DSH agent', () => {
     await runTurn(loop.ctx, loop.agent, 'note this down')
     assert.equal(loop.provider.calls, 0)
     assert.deepEqual(decisions(loop.runtime), [])
-    assert.deepEqual(loop.lines, [])
+    // The mount row is the only thing in the journal: off mode records no per-call
+    // decision, which is the point of the mode.
+    const written = scanJournal(`${loop.lines.join('\n')}\n`)
+    assert.deepEqual(written.isolated, [])
+    assert.deepEqual(written.confirmed.map(r => r.kind), ['diagnostic'])
+    assert.equal((written.confirmed[0] as { reason: string }).reason, 'mounted:mode=off provider=mock egress=deny')
     assert.equal(probeToolBodyCalls().length, 1)
     loop.runtime.close()
   })

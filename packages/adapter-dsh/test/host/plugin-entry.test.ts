@@ -71,16 +71,18 @@ describe('jey plugin loaded through its real cordis entry point', () => {
       assert.deepEqual(scan.isolated, [], `unexpected isolated lines: ${JSON.stringify(scan.isolated)}`)
       const decisions = scan.confirmed.filter(r => r.kind === 'decision')
       assert.equal(decisions.length, 1, JSON.stringify(scan.confirmed.map(r => r.kind)))
-      // The execution row that follows is the point: a decision row alone cannot say
-      // whether anything ran, and it must never be rewritten after the fact.
-      assert.deepEqual(scan.confirmed.map(r => r.kind), ['decision', 'execution'])
+      // The mount row opens the file, then the decision row, then the execution row that
+      // follows it: a decision row alone cannot say whether anything ran, and it must
+      // never be rewritten after the fact.
+      assert.deepEqual(scan.confirmed.map(r => r.kind), ['diagnostic', 'decision', 'execution'])
       const record = decisions[0] as AuditEvent
       assert.equal(record.kind, 'decision')
       assert.equal(record.action, 'abstain')
       assert.equal(record.hostDecision, 'allow')
       assert.equal(record.synthetic, true, 'the internally constructed provider is still labelled synthetic')
       assert.equal(record.execution, null, 'the decision row stays as written before dispatch')
-      assert.deepEqual(parseAuditLine(text.trim().split('\n')[0] as string), record)
+      const decisionLine = text.trim().split('\n').find(l => l.includes('"kind":"decision"')) as string
+      assert.deepEqual(parseAuditLine(decisionLine), record)
       await ctx.fiber.dispose()
     } finally {
       if (previous === undefined) delete process.env.JEY_AUDIT_PATH
@@ -131,7 +133,7 @@ describe('jey plugin loaded through its real cordis entry point', () => {
 
       assert.equal(outbound, 1, 'the local origin was allowlisted, so the attempt was made')
       assert.equal(probeToolBodyCalls().length, 1, 'an unreachable scorer must not block execution in shadow')
-      const [record] = scanJournal(readFileSync(path, 'utf8')).confirmed
+      const [record] = scanJournal(readFileSync(path, 'utf8')).confirmed.filter(r => r.kind === 'decision')
       assert.ok(record)
       assert.equal(record.kind, 'decision')
       if (record.kind !== 'decision') return
@@ -185,7 +187,7 @@ describe('jey plugin loaded through its real cordis entry point', () => {
       assert.equal(outbound, 0, 'nothing may leave the process without an allowlisted destination')
       assert.equal(probeToolBodyCalls().length, 1, 'shadow records the refusal and leaves execution alone')
       const scan = scanJournal(readFileSync(path, 'utf8'))
-      const [record] = scan.confirmed
+      const [record] = scan.confirmed.filter(r => r.kind === 'decision')
       assert.ok(record, `expected an audit record, got ${JSON.stringify(scan.isolated)}`)
       assert.equal(record.kind, 'decision')
       assert.ok(record.reasonCodes.some(c => c.startsWith('destination-not-named')), JSON.stringify(record.reasonCodes))
@@ -198,6 +200,49 @@ describe('jey plugin loaded through its real cordis entry point', () => {
       if (previousPath === undefined) delete process.env.JEY_AUDIT_PATH
       else process.env.JEY_AUDIT_PATH = previousPath
       if (previousKey !== undefined) process.env.JEY_TEST_ABSENT_KEY = previousKey
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('announces what it mounted, and nothing the host should not see', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'jey-mount-'))
+    const path = join(dir, 'journal.jsonl')
+    const previousPath = process.env.JEY_AUDIT_PATH
+    process.env.JEY_AUDIT_PATH = path
+    try {
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(jeyPlugin, config({
+        provider: {
+          kind: 'local',
+          local: {
+            endpoint: 'http://127.0.0.1:17861/v1/decide',
+            tokenRef: 'env:JEY_LOCAL_TOKEN',
+            ownership: 'external',
+            expectedModel: { requested: 'Qwen3.5-4B', revision: '851bf6e8' },
+          },
+        },
+        egress: { mode: 'local-only', allowedPurposes: ['tool-assessment'], allowedOrigins: ['http://127.0.0.1:17861'] },
+      }))
+      await ctx.fiber.dispose()
+
+      // The mount row is the only thing that distinguishes "the host took this config"
+      // from "Jey was never reached", so it has to survive to the journal.
+      const scan = scanJournal(readFileSync(path, 'utf8'))
+      assert.deepEqual(scan.isolated, [], JSON.stringify(scan.isolated))
+      const [mounted] = scan.confirmed
+      assert.ok(mounted, 'expected a mount row before any decision')
+      assert.equal(mounted.kind, 'diagnostic')
+      assert.equal(mounted.reason, 'mounted:mode=shadow provider=local egress=local-only')
+      const line = JSON.stringify(mounted)
+      // The row exists so an operator can see what is running; it must not become a place
+      // where an endpoint, a credential reference or a token leaks into a durable file.
+      for (const secret of ['127.0.0.1', 'http', 'env:', 'TOKEN', 'token', 'v1/decide', '17861']) {
+        assert.ok(!line.includes(secret), `mount row leaked ${JSON.stringify(secret)}`)
+      }
+    } finally {
+      if (previousPath === undefined) delete process.env.JEY_AUDIT_PATH
+      else process.env.JEY_AUDIT_PATH = previousPath
       rmSync(dir, { recursive: true, force: true })
     }
   })

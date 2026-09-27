@@ -250,7 +250,8 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     maxLineBytes: config.audit.maxFileBytes,
     now,
   })
-  const coordinator = new DecisionCoordinator(deps.provider, {    limits: {
+  const coordinator = new DecisionCoordinator(deps.provider, {
+    limits: {
       maxConcurrent: config.limits.maxConcurrent,
       maxQueue: config.limits.maxQueue,
       deadlineMs: config.limits.deadlineMs,
@@ -818,6 +819,16 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     ctx.on('agent/pre-step', onPreStep),
     ctx.on('tools/pre-execute', onPreExecute),
   ]
+
+  // A host that accepts the config says nothing about it, so "mounted and watching" and
+  // "never reached" were indistinguishable. The launcher's startup exporter is warn-level
+  // (dsh-app-boot `boot()` sets `levels: { default: 2 }`), so a host log line would be
+  // filtered exactly where an operator looks; the journal is our own channel. Only facts
+  // that are safe to publish go in it — no endpoint, path or credential reference.
+  journal.emit({
+    kind: 'diagnostic', auditId: mintAuditId(), requestId: '', sessionId: '', at: now(),
+    reason: `mounted:mode=${config.mode} provider=${config.provider.kind} egress=${config.egress.mode}`,
+  })
 
   function close(): void {
     for (const dispose of disposers) dispose()
