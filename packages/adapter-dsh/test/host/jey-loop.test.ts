@@ -67,8 +67,9 @@ async function mountLoop(
   const provider = new MockProvider(answers)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
+  const plugin = options.repeat === true ? repeatingProbeLlmPlugin : scriptedLlmPlugin
   const route = options.repeat === true ? REPEAT_LLM_ROUTE : PROBE_LLM_ROUTE
-  await ctx.plugin(options.repeat === true ? repeatingProbeLlmPlugin : scriptedLlmPlugin)
+  await ctx.plugin(plugin)
   ctx.tools.register(probeTool)
   const runtime = mountJey(ctx, config, { provider, audit })
   const harness = await mountAgentLoopTestHarness(ctx)
@@ -137,6 +138,34 @@ describe('Jey closed loop on a real DSH agent', () => {
       assert.ok(e.errors.some(x => x.code === 'ENFORCE_WITH_MOCK'), JSON.stringify(e.errors))
       return true
     })
+  })
+
+  it('will not apply a decision whose snapshot moved while the provider was thinking', async () => {
+    // R04: the adapter used to hand the *captured* snapshot back into the apply check, so
+    // freshness compared a ref with itself and could only answer "fresh". Here a real
+    // `agent/pre-step` for the same agent is admitted while the decision is still open —
+    // the same dispatch the loop itself performs — and the late answer must be refused.
+    const loop = await mountLoop(jeyConfig({ mode: 'shadow', limits: { deadlineMs: 20000 } }))
+    loop.provider.hold(1)
+    const turn = runTurn(loop.ctx, loop.agent, 'note this down')
+    await loop.provider.holding
+
+    const admitted = createUserMessage({
+      content: [{ type: 'text', text: 'new instruction arrived mid-inference' }],
+      source: { kind: 'user' },
+    })
+    await loop.ctx.waterfall('agent/pre-step', {
+      agent: loop.agent, messages: [admitted], turn: 2, step: 5, signal: new AbortController().signal,
+    }, async () => ({ kind: 'enter' as const, messages: [admitted] }))
+
+    loop.provider.release()
+    await turn
+
+    const records = decisions(loop.runtime)
+    assert.equal(records.length, 1, JSON.stringify(records.map(r => r.reasonCodes)))
+    assert.equal(records[0]?.stale, true, 'a decision computed against superseded state must be marked stale')
+    assert.ok(records[0]?.reasonCodes.includes('stale-snapshot'), JSON.stringify(records[0]?.reasonCodes))
+    loop.runtime.close()
   })
 
   it('keeps two sessions from sharing a goal, a history or a task version', async () => {

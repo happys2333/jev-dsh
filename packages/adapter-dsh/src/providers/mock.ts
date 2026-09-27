@@ -16,10 +16,32 @@ export class MockProvider implements DecisionProvider {
   readonly answers: Record<string, number>
   readonly behaviour: 'answer' | 'fail' | 'abstain'
 
+  /** How many upcoming `evaluate` calls should block until {@link release}. */
+  #held = 0
+  #waiters: (() => void)[] = []
+  #resolveHolding: () => void = () => {}
+
+  /**
+   * Resolves as soon as a held call is actually inside `evaluate`, so a test can perform
+   * host state changes *while* a decision is in flight instead of guessing a sleep.
+   */
+  readonly holding: Promise<void> = new Promise(resolve => { this.#resolveHolding = resolve })
+
   // Explicit fields, not constructor parameter properties: Node's type stripping rejects those.
   constructor(answers: Record<string, number> = {}, behaviour: 'answer' | 'fail' | 'abstain' = 'answer') {
     this.answers = answers
     this.behaviour = behaviour
+  }
+
+  /** Block the next `n` evaluations until {@link release} is called. */
+  hold(n = 1): void {
+    this.#held += n
+  }
+
+  release(): void {
+    const waiters = this.#waiters
+    this.#waiters = []
+    for (const wake of waiters) wake()
   }
 
   async capabilities(): Promise<ProviderCapabilities> {
@@ -51,6 +73,11 @@ export class MockProvider implements DecisionProvider {
     this.calls += 1
     this.seen.push(request)
     const started = Date.now()
+    if (this.#held > 0) {
+      this.#held -= 1
+      this.#resolveHolding()
+      await new Promise<void>(wake => { this.#waiters.push(wake) })
+    }
     const base = {
       schemaVersion: '1' as const,
       requestId: request.requestId,

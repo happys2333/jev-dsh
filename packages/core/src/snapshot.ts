@@ -75,7 +75,13 @@ export function buildSnapshot(facts: SnapshotFacts): DecisionSnapshot {
     // `tools/change` counter: that event also fires for our own restriction, which
     // would make the snapshot invalidate itself and cross-contaminate other agents.
     catalogDigest: catalogDigestOf(facts.catalog),
-    callDigest: facts.call === null ? null : digestJson(facts.call.frozenArguments),
+    // A digest of the arguments alone under-binds the call: two different tools asked
+    // for the same payload would look like the same call. The tool name and the root
+    // call identity go in, so a decision captured for one call cannot be read as fresh
+    // for another that happens to carry identical arguments.
+    callDigest: facts.call === null
+      ? null
+      : digestJson([facts.call.toolName, facts.call.executionToken, facts.call.frozenArguments]),
     observationSequence: facts.observationSequence,
   }
   return Object.freeze({ ref: Object.freeze(ref), facts: Object.freeze({ ...facts }) })

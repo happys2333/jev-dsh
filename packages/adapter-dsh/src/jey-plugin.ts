@@ -7,8 +7,8 @@ import type {
 } from 'jey-contracts'
 import {
   AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assessmentState, buildSnapshot, checkEgress,
-  compileAssessment, evaluatePolicy, fitToBudget, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
-  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type StateSection, type TaskConstraint,
+  compileAssessment, evaluatePolicy, fitToBudget, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
+  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
 } from 'jey-core'
 import { MockProvider } from './providers/mock.ts'
 import { ExpectedProvider } from './identity.ts'
@@ -300,14 +300,54 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     auditBlocked: false,
   }
 
+  /**
+   * The snapshot facts for one call, read from live scope state at the moment of the
+   * call. The captured ref and the apply-time re-check both go through here, so a stale
+   * decision cannot survive because the two sides computed identity differently — which
+   * is exactly what happened when the caller passed the captured ref back in.
+   */
+  function factsFor(args: {
+    readonly scopeKey: string
+    readonly toolName: string
+    readonly arguments: JsonValue
+    readonly rootCallId: string | null
+    readonly truncated: readonly string[]
+  }): SnapshotFacts {
+    const scope = scopeFor(args.scopeKey)
+    const active = activeConstraints(scope.task).map(c => c.text)
+    return {
+      // DSH's `Agent` is `{ id: SessionId }` — an agent handle *is* session-backed — so
+      // one key serves both fields here. A shared parent budget would need a parent link
+      // the execution does not carry; recorded as a gap, not guessed at.
+      sessionId: args.scopeKey,
+      agentId: args.scopeKey,
+      turn: scope.position.turn,
+      step: scope.position.step,
+      generation,
+      policyVersion,
+      taskVersion: scope.task.version,
+      task: { ...scope.task },
+      catalog: [{ name: args.toolName, schemaDigest: catalogDigest }],
+      call: {
+        toolName: args.toolName,
+        frozenArguments: args.arguments,
+        executionToken: args.rootCallId ?? 'unknown-call',
+        observationSequence: scope.sequence,
+      },
+      recentResults: scope.recentResults.slice(-5),
+      observationSequence: scope.sequence,
+      truncated: args.truncated,
+    }
+  }
+
   function snapshot(args: {
     readonly scopeKey: string
     readonly toolName: string
     readonly arguments: JsonValue
+    readonly rootCallId: string | null
     readonly approvalChannel: boolean
   }): { readonly ref: SnapshotRef; readonly request: DecisionRequest; readonly fields: readonly string[]; readonly truncated: readonly string[]; readonly neededBytes: number | null } {
     const scope = scopeFor(args.scopeKey)
-    // Only non-revoked constraints may inform a judgement about the user's limits.
     const active = activeConstraints(scope.task).map(c => c.text)
     // §5.2 order: hard policy and this call first, then recent results, then conversation.
     // Cutting happens at JSON boundaries and every removal is recorded on the snapshot.
@@ -318,32 +358,13 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       { id: 'chat', kind: 'conversation', value: scope.conversation.slice(-12) },
     ]
     const fit = fitToBudget(sections, config.limits.maxStateBytes)
-    const built = buildSnapshot({
-      // DSH's agent handle is session-backed (`Agent.id: SessionId`), so one key serves
-      // both fields for this host version. A shared parent budget would need a parent
-      // link the execution does not carry; recorded as a gap, not guessed at.
-      sessionId: args.scopeKey,
-      agentId: args.scopeKey,
-      turn: scope.position.turn,
-      step: scope.position.step,
-      generation,
-      policyVersion,
-      taskVersion: scope.task.version,
-      task: {
-        initialGoal: scope.task.initialGoal,
-        currentSubgoal: scope.task.currentSubgoal,
-        constraints: scope.task.constraints,
-        latestRevisionEvent: scope.task.latestRevisionEvent,
-        // Requirements that never arrived are marked unknown, never "the user set no
-        // limits" (spec 5.1).
-        requirementsUnavailable: scope.task.requirementsUnavailable,
-      },
-      catalog: [{ name: args.toolName, schemaDigest: catalogDigest }],
-      call: { toolName: args.toolName, frozenArguments: args.arguments, executionToken: args.scopeKey, observationSequence: scope.sequence },
-      recentResults: scope.recentResults.slice(-5),
-      observationSequence: scope.sequence,
+    const built = buildSnapshot(factsFor({
+      scopeKey: args.scopeKey,
+      toolName: args.toolName,
+      arguments: args.arguments,
+      rootCallId: args.rootCallId,
       truncated: fit.ok ? fit.omissions.map(o => o.path) : [`insufficient:${fit.code}`],
-    })
+    }))
     const request: DecisionRequest = {
       schemaVersion: '1',
       requestId: `req_${randomUUID()}`,
@@ -459,6 +480,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       scopeKey,
       toolName: exec.name,
       arguments: exec.arguments as JsonValue,
+      rootCallId: exec.rootCallId ?? null,
       approvalChannel,
     })
     const violations = hardRules(exec)
@@ -531,6 +553,17 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       return toPreTool(policy.combined)
     }
 
+    // What the state looks like *now*, from the same code that built the captured ref.
+    // Passing the captured ref back in — as this did — compares a snapshot with itself
+    // and can only ever answer "fresh".
+    const current = buildSnapshot(factsFor({
+      scopeKey,
+      toolName: exec.name,
+      arguments: exec.arguments as JsonValue,
+      rootCallId: exec.rootCallId ?? null,
+      truncated,
+    })).ref
+    const fresh = isFresh(ref, current)
     const response = outcome.response
     const policy = evaluatePolicy({
       mode: config.mode,
@@ -538,7 +571,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       approvalChannel,
       hardRuleViolations: [],
       outcomes: response.outcomes,
-      snapshotFresh: true,
+      snapshotFresh: fresh,
       calibrationAvailable: config.calibration !== undefined,
       ...(config.calibration === undefined ? {} : {
         thresholds: {
@@ -564,11 +597,11 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       reasonCodes: policy.reasonCodes,
       requiredQuestionIds: request.questions.map(q => q.id),
       observationRequestId: request.requestId,
-      appliesTo: ref,
+      appliesTo: current,
     }
     // Synchronous, single-shot: the freshness re-check and the consumption of the
     // decision happen with no await between them (spec 10.1).
-    const resolution = outcome.application.apply(ref, host, applied)
+    const resolution = outcome.application.apply(current, host, applied)
     if (resolution.kind === 'stale') {
       const fallback: HostDecision = approvalChannel
         ? { kind: 'ask', reason: 'jey: snapshot stale' }
