@@ -22,7 +22,7 @@ pnpm install
 pnpm -r build && pnpm -r typecheck     # 类型合同
 pnpm --filter jey-core test            # 158 条单元
 pnpm --filter jey-core test:property   # 16 条属性
-pnpm --filter jey-adapter-dsh test     # 54 条：真实 agent loop 上的宿主闭环、审批通道、装载入口、doctor、外发与审计
+pnpm --filter jey-adapter-dsh test     # 71 条：真实 agent loop 上的宿主闭环、审批通道、装载入口、doctor、外发与审计
 pnpm --filter jey-provider-typesafe test  # 20 条：云端线格式契约，夹具来自官方文档，全程不联网
 pnpm --filter jey-provider-local test     # 14 条：本地评分服务客户端契约（只认字面 loopback 等）
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .

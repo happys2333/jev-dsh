@@ -86,6 +86,14 @@ export interface LlmCallConfig { provider; model; reasoningEffort?; temperature?
 
 结论：在 `agent/pre-step` 内调用 `restrict()` 只影响**下一步**的 assembly，当前步发往模型的 schema 已冻结。R-01 成立，且属宿主固有性质而非某插件缺陷。→ 硬筛选必须走 `system-prompt/assemble`；本项目在通过 §8.2 gate 前保持建议模式。
 
+**2026-09-27 实测证实了这条，并补上一半更糟的后果**（`scoped-tools.test.ts` 的
+`shows that a restriction made inside pre-step reaches only the next assembly`）：
+在 `agent/pre-step` 里 restrict 之后，本步的 assembly 依然带着被禁的工具（模型被展示了它），
+而派发时 `resolveExecution` 已解析不到它 —— 工具体不跑，宿主返回一个错误结果。Jey 在这条调用上
+正常被问到、投了 `abstain`/宿主 `allow`，执行行却是 `failed`：一层在自己刚刚认可过的调用上
+出现了它无法解释的失败。这就是"筛选只能落在 assemble"的实证理由，也是
+`presentationFilter` 继续拒绝装载的原因。
+
 ## 5. 工具 JSON Schema 是强制子集
 
 `docs/subsystems/tools.md:100,421-451`：作者 DSL `ValueSchemaSpec` 仅支持 `string|number|integer|boolean|null|array|object|json|oneOf`，标量 `enum/const` 必须匹配节点类型，显式 object 必须声明 `additionalProperties: true|false`。原始 JSON Schema 走 `assertSupportedJsonSchema()` / `validateJsonSchemaValue()`，**不支持的关键字是 reject 而非忽略**；`oneOf` 需 ≥2 分支且恰好命中一个。
@@ -183,7 +191,7 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 | compatibility | **PASS（本地运行时部分）** | 顺序、工具投影、deny、guard、结果冻结均已在真实 loop/ToolRuntime 上执行并通过；`artifacts/compatibility.json` 可重放 |
 | compatibility · 发行版 overlay 加载 | **PASS** | `0.1.7-alpha.1` 真实 launcher + 临时 `DSH_HOME` + `--patch` overlay 装载构建产物；`scripts/host_boot_check.mjs` 可重放，证据 `artifacts/host_launcher_boot.json`（见 §13） |
 | compatibility · `ask` 授予通道 | **PASS** | 已组合真实 `@deepseek-ai/dsh-user-approval`，授予/拒绝/无人应答三条路径各自有测试（见 §14） |
-| compatibility · `restrict()` 时序 | **NOT_RUN** | 与 §8.2 gate 绑定，未开始 |
+| compatibility · `restrict()` 时序 | **PASS** | §4 的结论已用真实 loop 实测（pre-step 里的 restrict 对本步 assembly 无效），并量出"本步被展示、派发时不可解析"的后果 |
 
 ## 13. 真实 launcher 核实（2026-09-27 执行）
 
@@ -239,3 +247,44 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 3. 拒绝仍来自未知来源时（沙箱、别的插件），`tools/result` 里读不出来，只能记 `failed`；
    这条限制写在 `jey-plugin.ts` 的注释里，不假装能区分。
 
+
+## 15. 作用域、嵌套与次序（2026-09-27 实测）
+
+来源同样是发布产物（`dsh-tools@0.1.7-alpha.1`、`dsh-scope@0.1.7-alpha.1`、
+`dsh-system-prompt@0.1.7-alpha.1`）加上真实宿主测试里的执行结果。
+
+**作用域与同名工具。** `ctx.tools.register(definition)` 没有"作用域版"签名：它按调用方的
+上下文自行定位（`dsh-tools/lib/index.js:2882` → `ScopedLayers.effect` 用 `scopeOf(ctx)`）。
+解析在 `ToolRuntime.view(scope)`：继承链"最远先写、最近的后写"，所以**最近的 scope 赢得同名**。
+展示给模型的那一份（`systemPrompt.tools` → `wireSchemas(view.visible)`）与派发时解析的那一份
+（`resolveExecution(name, exec.agent)` → 同一个 `view.visible`）是同一个视图，因此
+"广告的定义"和"执行的定义"按作用域天然一致 —— Jey 的目录摘要也必须按作用域记，否则
+A 的判定会被 B 的目录污染。
+
+**可见性约束。** `ctx.tools.restrict({allow?, deny?})` 只在 agent 作用域可用（全局上下文调用
+直接抛，`index.js:2893`），只能**收窄**：`admits()` 对 deny 命中或 allow 未命中返回 false，
+层与层取交集。"被隐藏"在 `PromptAssembly.tools` 里的表现就是该 schema 不在数组里；
+`knownNames` 仍保留全集，只用于配置校验。⇒ 一个下游插件没有办法把被宿主藏起来的工具加回来，
+Jey 也从不尝试：它既不调 `register` 也不调 `restrict`（有测试计数）。
+
+**目录变化的信号。** `tools/change` 是**零参数**、`@mode emit`、且刻意**不按作用域过滤**的
+注册表广播（doc 原文："UNFILTERED registry-subject notification… a scoped listener subscribing
+here sees every change, not just its own scope's"）。它不回答"谁的目录变了"，所以
+"按作用域刷新摘要"只能落在 `system-prompt/assemble` 上：`AssembleContext.scope` 就是
+`ScopeKey`（类型是 `object`，实测即 Agent 把手），从中读 `.id` 得到作用域键。
+
+**嵌套派发。** `ToolExecutionInput` 带可选的 `rootCallId` 与 `parent`；PTC 桥正是这样构造子调用
+（`index.js:1291-1306`：`subCallId = ${callId}:ptc:${n}`、`rootCallId: exec.rootCallId`、
+`parent: exec.token`）。子调用走**完整管线**：pre-execute waterfall → 审批 → 同步 guard →
+execute → post-execute → result。唯一的嵌套差异是 `meta`/presentation 只在
+`exec.parent === void 0` 时附加，以及持久化事件名不同（`tool/ptc-dispatch*`）。
+⇒ 一个根调用会产出**多条** `tools/result`，所以"这次派发发生了什么"必须按 `callId` 关联，
+而"这次尝试算几次"仍按 `rootCallId`（见缺陷 34）。
+⇒ 本机能做的嵌套验证是同一个注册表入口（`ctx.tools.execute` 带父 token）。真正的 PTC 桥
+跑不起来：`@deepseek-ai/dsh-ptc-runtime@0.1.7-alpha.2` 只发布抽象 Service 定义，锁文件里没有
+node 实现，`requirePtcRuntime` 直接抛。HOST-10 因此写 PARTIAL，而不是假装跑过桥。
+
+**次序。** 注册顺序就是 waterfall 顺序。排在 Jey 之前的监听器如果**不调 `next()` 就返回拒绝**，
+Jey 根本不会被问到：调用仍被拦住（权限没有被放宽），但 Jey 的日志里不会出现这条拒绝。
+这是"多插件 waterfall 里的一环"的固有位置，不是一条能修的缺陷，因此以测试形式记录
+（`is not consulted when a plugin mounted earlier refuses the call`）。

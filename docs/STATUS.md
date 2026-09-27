@@ -10,7 +10,7 @@
 | 实测顺序 | 已执行 | `assemble → pre-step → llm-request → pre-execute → pre-execute-decision → guard → execute → post-execute → result → assemble → …`，R-01 在运行时成立 |
 | 已证实的保护性质 | 已执行 | `pre-execute` deny 后工具体不跑；同步 guard 拒绝压过内层 waterfall 的 allow；`tools/result` 的 exec/result/content 三层全冻结、写入抛 `TypeError`；工具集只经 `PromptAssembly.tools` 投影到请求头 |
 | `ask` 授予通道 | **PASS（2026-09-27 解除）** | 当初探针未组合 `dsh-user-approval`，只实测到降级。现已把真实服务装进宿主测试：授予 → 执行、拒绝 → `denied-by-host`、无人应答 → `approval-unavailable`（见 `approval.test.ts` 与 `docs/HOST_CONTRACT.md` §14）。装载时探测 `ctx.get('approval')` 的要求保留，并且现在还驱动了行为 |
-| `restrict()` 时序 | **NOT_RUN** | 与 §8.2 presentation-only gate 绑定 |
+| `restrict()` 时序 | **已实测（2026-09-27）** | §4 那条结论在真实 loop 上被证实：pre-step 里的 restrict 改不了本步的 assembly；同时量出更糟的一半 —— 本步被展示的工具在派发时已解析不到。见 HOST_CONTRACT §4 末与 `scoped-tools.test.ts` |
 | 发行版 overlay 加载 | **PASS（2026-09-27）** | `scripts/host_boot_check.mjs`：固定版 launcher + 临时 `DSH_HOME` + `--patch` 装载构建产物，见 HOST-01 |
 
 已核实的事实（不是声明，是查过的）：
@@ -113,7 +113,7 @@ v1 明确**不重试**：重试只能有一层负责，协调器与提供方同�
 
 ## 2026-09-27 独立核查轮（D0 + P0）
 
-外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、12 PARTIAL、24 NOT_RUN、1 BLOCKED）。
+外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 43 PASS、11 PARTIAL、19 NOT_RUN、1 BLOCKED）。
 
 | 项 | 修了什么 | 钉住它的测试 |
 |---|---|---|
@@ -194,6 +194,40 @@ launcher 在装载被拒后继续 serve，所以"配置没问题"和"Jey 在跑"
 PACK-02（版本不匹配要明确报告、不宣称兼容）因此从 NOT_RUN 变成 **PARTIAL**：命令与证据都有了，
 缺的是"从安装好的 tarball 里跑它"——那要先有可安装的包（P1-04）。
 
+## 2026-09-27 作用域、嵌套与次序边界（HOST-08/09/11/14、SEC-02、LIFE-07 转 PASS）
+
+新增三个宿主测试文件（`scoped-tools` / `nested-calls` / `untrusted-description`），把审查里
+剩下的 P0 边界逐条落到真实宿主管线上。顺带改了适配器的三处（缺陷 32、33、34），它们都是
+被这些新用例逼出来的，不是先想到再写的测试。
+
+| 案例 | 关键断言 |
+|---|---|
+| HOST-08 | 同名工具全局 + agent 作用域各一份：A 执行作用域定义、B 执行全局定义（body 侧记录证明），两条判定行各自对比**自己作用域被展示的目录** |
+| HOST-09 | `restrict({deny:[…]})` 之后跑两个真回合：Jey 引起的 `register`/`restrict` 次数为 0（钩子本身另断言是活的），被藏起来的工具没有被"复活" |
+| HOST-10 | 父 + 两个子各得一条判定行和一条执行行（`requestId` 互不相同）；三次父尝试里叶子 body 恰好跑 5 次，第 3 次的第二个子调用被 path-paused 拦下 |
+| HOST-11 | 不带 agent 的调用仍然被判定并记录，作用域写作 `agentless` |
+| HOST-14 | 一次判定只开一个审批问题；`APPROVAL_WITHOUT_HOST_CHANNEL` 让"要审批但宿主没通道"的配置装载失败 |
+| SEC-02 | 描述与参数描述里写满改端点/换模型/放 egress/打印密钥的指令：发出体里没有这些文本、题集仍是固定模板、`runtime.config` 逐项相等、fetch 计数 0 |
+| LIFE-07 | Jey 自己不制造 `tools/change`；摘要按作用域刷新，别的 agent 目录变了不把在途判定判成 stale |
+
+**HOST-10 的边界**：桥本身没跑。`@deepseek-ai/dsh-ptc-runtime@0.1.7-alpha.2` 只发布抽象
+Service 定义，锁文件里没有任何实现包，`run_code` 在这种树上进不去。用例走的是桥所用的同一个
+入口（`ToolRuntime.execute` 带上父的 `rootCallId` 与 `token`），管线各阶段一致，但那是
+"同一条管线的嵌套调用"，不是"PTC 桥"。所以 HOST-10 写 PARTIAL。
+
+**HOST-14 的已知缺口**：注册在 Jey 之前的监听器如果直接返回拒绝而不往下走，Jey 根本不会被
+问到——调用照样被拦（没有放宽权限），但 Jey 的日志里不会出现这条拒绝。写成了测试
+（`is not consulted when a plugin mounted earlier refuses the call`），没有当成缺陷修掉，
+因为在一个多插件 waterfall 里这不是我们能补的位置。
+
+**顺带把 §8.2 的时序 gate 量完了**（原来只是读源码得出的结论）：
+`shows that a restriction made inside pre-step reaches only the next assembly`。
+在 `agent/pre-step` 里 `restrict({deny:[probe]})` 之后，本步的 assembly 仍然带着这个工具，
+而派发时已经解析不到它 —— 工具体不跑，宿主给出一个错误结果。Jey 这条调用上正常被问到、
+投了 `abstain`（宿主 `allow`），执行行却是 `failed`：一层在自己刚刚认可过的调用上遇到了
+无法解释的失败。这就是"筛选只能落在 `system-prompt/assemble`"的实证理由，也是
+`presentationFilter` 继续拒绝装载的原因（缺实现，不缺认知）。
+
 ## 过程中发现并修掉的真实缺陷
 
 1. **shadow 不惰性**：概率分支（conflict/goal/evidence）没有检查 mode，`shadow` 下仍会产出 `ask`/`deny`。属性测试在 1000 次随机输入下命中；此前的单元测试因为固定了 `snapshotFresh: false` 而走进提前返回、把它掩盖了。修法是把 mode 处理从各分支上移到唯一出口，使不变量成为结构性事实。
@@ -235,6 +269,10 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 
 31. **"宿主的拒绝被读成允许"没有任何测试能发现**：单调合并在 core 里是对的，但适配器读宿主决定的那行 `fromPreTool` 在 core 之外；删掉它的 `deny` 分支，typecheck 与全部测试照绿，工具体照跑。补了 `keeps a later listener’s denial ahead of what Jey decides`（在 Jey 之后注册一个返回 `deny` 的 waterfall 监听器），并用"删掉分支→测试变红"验证它确实钉得住。
 
+32. **shadow 在"快照过期"这条路上会拦下调用**：概率分支都经过 `evaluatePolicy` 的 mode 出口，唯独 stale 分支自己拼了 `ask`/`deny` 交给宿主，完全没看 mode——于是 shadow 模式下一次在途的状态移动就把工具体拦死了，而 shadow 的定义就是"我的判断只作观察"。这跟最早那条"shadow 不惰性"是同一个形状的复发。修成：shadow 交回宿主原本的决定，`enforce` 才升级；两条都写成了具名测试。
+33. **`features.approvalRequests` 只在装载时被检查**：`contradictions()` 用它拒绝"要审批但宿主没通道"的配置，然后运行期再没人读它——关掉它的部署照样在宿主有审批服务时弹窗。现在通道 = 宿主有服务 **且** 开关打开，缺任一侧都降级为拒绝；`does not prompt when approval requests are switched off, even on a capable host` 直接数应答者被调用次数（0）。
+34. **执行行按 `rootCallId` 关联，嵌套时会串**：一个根调用可以有多个子派发，它们共用同一个 root。用 root 做键时第一个子调用的结果吃掉了父的记录，父与第二个子都没有行（实测只剩 2 条，应为 3 条）。改成按 `callId` 关联"这一次派发发生了什么"，`rootCallId` 仍用于"这一次尝试计几次"——两件事本来就该有两个键。这条也是靠把改动回退再跑测试确认能被抓住的。
+
 另记：一次用 shell 打补丁的操作有 3 处替换静默没生效却报告成功，靠 grep 复核才发现；此后同类改动一律用编辑器改并回读确认。本轮仍有一次编辑器改动把 `class Job:` 换成了错误的目标行（缺陷 23），说明"回读"这一步不能省——工具说成功只代表它做了某件事，不代表那件事是对的。本轮最严重的一次同样是编辑器造成的（缺陷 31），而且它一路穿过 typecheck 和当时的全部测试，直到把它做成一次有红有绿的实验才暴露。
 
 这些都属于“看起来通过、实际不安全”一类，记录在此以便复核。
@@ -246,7 +284,7 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 | cloud-inference | **BLOCKED** | 无 `TYPESAFE_API_KEY`、无调用预算。代码与 fixture 契约测试照常实现 |
 | local-inference | **已解除** | 2026-09-25 授权后完成：Python 3.12.13（uv）、SemIf 固定提交 editable 安装、3.01 GB 权重按锁校验通过。真实推理见上表。取权重过程中 HF 的 xet 传输在本机走到约 11 MB 后完全停住（进程活着，六分钟内零进展），杀掉后设 `HF_HUB_DISABLE_XET=1` 走经典 HTTP 达到 ~3 MB/s、十来分钟完成并验过 sha256——`download_weights.py` 里那行 setdefault 就是为这个，不是风格选择。第一次尝试留下的 `.incomplete` 仍躺在缓存里，不影响正确性 |
 | `ask` 授予通道 | **已解除（2026-09-27）** | 把 `@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 作为直接依赖装进宿主测试，授予/拒绝/无人应答三条路径各有一条具名测试；`unavailable` 走的是服务自己的 fail-closed 默认 |
-| `restrict()` 时序 | **NOT_RUN** | §8.2 presentation-only gate；发行版 overlay 装载已于 2026-09-27 核实（HOST-01 PASS），这一项仍未做 |
+| `presentationFilter`（硬筛选的实现） | **NOT_IMPLEMENTED** | 时序 gate 本身已在 2026-09-27 实测清楚（restrict 落在 pre-step 晚了一步，见 §4）；缺的是把筛选写进 `system-prompt/assemble`，配置目前直接拒绝启用 |
 | 宿主级 egress 拒绝（真实提供方） | **NOT_RUN** | 现在具备条件：local 服务可以真跑，M5 补 |
 | secret-scan / pack-install / CI | **NOT_RUN** | M5/M7 |
 | MCP 适配（M4）、评测（M6）、最终报告（M8） | **NOT_STARTED** | — |

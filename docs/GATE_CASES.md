@@ -16,17 +16,17 @@
 | HOST-01 真实 Launcher 加载 | **PASS** | `scripts/host_boot_check.mjs`：临时 `DSH_HOME` + `@deepseek-ai/dsh@0.1.7-alpha.1` 真实 launcher + `--patch` 装载**构建产物**。8 条检查全过（`--dump-config` 组合出我们的条目、`enforce+mock` 由我们的 `ConfigError` 拒绝且拒绝前不写 mount 行、`off`/`shadow` 真启动且审计出现 mount 行）。证据 `artifacts/host_launcher_boot.json`。注意同版本下"装载被拒只 warning 后继续 serve"，见 `docs/HOST_CONTRACT.md` §13 |
 | HOST-02 真实原生调用 | **PARTIAL** | 事件顺序在真实 loop 上可追踪（`ordering.test.ts`），但模型是脚本、工具是探针，缺真模型驱动的一轮 |
 | HOST-03 组装时序 | **PASS** | `observes assemble -> pre-step -> pre-execute -> execute -> result on the real runtime`、`advertises exactly the assembled tool set to the model` |
-| HOST-04 最终输入改写 | **NOT_RUN** | `presentationFilter` 现在直接拒绝装载（`FEATURE_NOT_IMPLEMENTED`），未实现 |
+| HOST-04 最终输入改写 | **NOT_RUN** | `presentationFilter` 直接拒绝装载（`FEATURE_NOT_IMPLEMENTED`），未实现。它卡的那道时序 gate 已于 2026-09-27 实测清楚：pre-step 里的 `restrict()` 对本步 assembly 无效，而且会让本步展示过的工具在派发时解析不到（`scoped-tools.test.ts`），所以筛选只能落在 `system-prompt/assemble` |
 | HOST-05 宿主拒绝保持 | **PASS** | `lets a monotonic guard denial outrank a waterfall allow`、`stops the tool body when a tools/pre-execute listener denies the call`、`keeps a later listener’s denial ahead of what Jey decides`（适配器读宿主决定的那一环，2026-09-27 补：删掉 `fromPreTool` 的 deny 分支时它会变红），加上属性 `Jey can never loosen the host decision` |
 | HOST-06 宿主审批保持 | **PASS** | `approval.test.ts` 组合真实的 `@deepseek-ai/dsh-user-approval`：`runs the call when a composed answerer grants it`（授予才执行，execution 行 `succeeded`+`appliedAction:'ask'`）、`records a human refusal as a host denial…`（拒绝 → `denied-by-host`/`approval-rejected`，body 0 次）、`fails closed through the service when no answerer is composed`（无人应答 → `approval-unavailable`，仍不执行）。审批结论取自宿主自己的 `approval/asked`+`approval/decided` 会话事件对，不是从结果文本猜的。边界：应答者是测试里注册的合成监听器，"人在浏览器里点按钮"没跑过 |
 | HOST-07 无审批服务 | **PASS** | `records the same question as a denial when no channel can surface it`（Jey 自己把无法弹出的 `ask` 记成 `deny` + `approval-channel-absent`，行里保留原始成因）；另有探针级 `degrades an ask decision to a denial because no approval service is composed` |
-| HOST-08 作用域同名工具 | **NOT_RUN** | 需要 scoped 注册与真实 launcher |
-| HOST-09 已有可见性约束 | **NOT_RUN** | 同上 |
-| HOST-10 嵌套工具传输 | **PARTIAL** | `rootCallId` 现在参与去重（core `progress` 单测覆盖父/子一次计数），但没在真实 PTC 传输上跑过 |
-| HOST-11 无 agent 的受保护调用 | **PARTIAL** | `scopeKeyOf` 把无 agent 的调用归到 `agentless` 作用域并照常计数；缺宿主级用例 |
+| HOST-08 作用域同名工具 | **PASS** | `scoped-tools.test.ts`：`judges a same-name tool by the definition its own scope executes`。全局与 agent 作用域各注册一个同名不同参的 `dup`，A 跑到作用域定义、B 跑到全局定义（body 记录证明），两条判定行的 `catalogDigest` 各自等于**自己那个 agent 被展示的目录**（装载器改为按作用域记摘要，见缺陷 34/§15） |
+| HOST-09 已有可见性约束 | **PASS** | `leaves a hidden tool hidden: Jey registers nothing and restricts nothing`。`agent.ctx.tools.restrict({deny:[…]})` 之后：A 看不见、B 仍看得见；对 `register`/`restrict` 挂钩计数，跑两个真回合后 Jey 引起的变更次数仍是 0（并且断言钩子本身是活的，否则"0"没有意义）；隐藏的工具在整个回合后仍然隐藏 |
+| HOST-10 嵌套工具传输 | **PARTIAL** | `nested-calls.test.ts` 三条：父+两子各得一条判定与一条执行行（`requestId` 互不相同）、同一 attempt 的两个相同子调用只计一次失败（3 次父尝试 → 叶子 body 恰好 5 次，第 3 次的第二个子调用被 path-paused 拦住）、子调用不会因为嵌套而被跳过。**边界**：走的是 PTC 桥所用的同一个入口（`ToolRuntime.execute` + 父的 `rootCallId`/`token`），不是桥本身——装的 `dsh-ptc-runtime@0.1.7-alpha.2` 只有抽象 Service 定义，锁文件里没有 node 实现，`run_code` 起不来 |
+| HOST-11 无 agent 的受保护调用 | **PASS** | `still checks an agentless call instead of skipping it for want of a session`：`ctx.tools.execute` 不带 agent 时仍走判定、仍写行，`sessionId` 记为 `agentless`，shadow 下不额外限制 |
 | HOST-12 热替换后恢复 | **PARTIAL** | generation 递增 + `stops observing once the plugin instance is disposed`；未测真实 HMR 重装 |
 | HOST-13 异常最终结果 | **PASS** | `gives tools/result observers a frozen outcome and no return channel`，且新增 execution 行记录 `failed` |
-| HOST-14 插件次序组合 | **NOT_RUN** | 需要第二个插件参与 waterfall |
+| HOST-14 插件次序组合 | **PASS** | 三个方向都有用例：内层监听器 allow 时 Jey 的 ask 原样送达（`approval.test.ts` 授予/拒绝/无人应答）；`opens exactly one approval question per decision` 证明一次判定只开一个审批问题；`APPROVAL_WITHOUT_HOST_CHANNEL` 让"声明要审批但宿主没有通道"的配置直接装载失败。**已知边界**：`is not consulted when a plugin mounted earlier refuses the call` —— 注册在 Jey 之前的监听器直接短路时，调用仍被拦（权限没有被放宽），但 Jey 无从记录这条拒绝 |
 
 ## property（6）
 
@@ -65,7 +65,7 @@
 | 案例 | 状态 | 证据 / 差在哪 |
 |---|---|---|
 | SEC-01 外发默认关闭 | **PASS** | `egress.mode` 默认 `deny`；属性 `mode=deny is absolute…`；宿主级 `will not send state to a cloud destination that was never allowlisted` |
-| SEC-02 不可信工具描述 | **NOT_RUN** | 提示注入边界测试属 M5 |
+| SEC-02 不可信工具描述 | **PASS** | `untrusted-description.test.ts`：工具描述与参数描述里写满"改成 attacker 端点 / 换模型 / 放开 egress / 把 env 里的密钥打印进每道题"。断言四件事：发往提供方的请求里不含该文本也不含密钥值（快照只带目录摘要）、题集仍是固定模板 id、`runtime.config` 与装载时逐项相等、`egressOccurred=false` 且 fetch 调用数 0。第二条再证一次：换描述只换 `catalogDigest`，动作与 reasonCodes 逐字不变 |
 | SEC-03 参数秘密最小化 | **PARTIAL** | 公共日志不再带可猜的参数摘要（`publishes an argument digest only when a key makes it irreversible`）；"参数里的秘密最小化"本身没测 |
 | SEC-04 上下文裁剪 | **PASS** | 4 条裁剪属性 + `refuses to ask a provider about a call whose own arguments do not fit the budget` |
 | SEC-05 跨会话隔离 | **PASS** | `keeps two sessions from sharing a goal, a history or a task version` + core 作用域属性 |
@@ -84,7 +84,7 @@
 | LIFE-04 取消的 GPU 任务 | **PASS（以不撒谎的方式）** | 能力固定声明 `discard-only`；不做"已停止计算"的假确认。CPU 路线无 GPU 可测 |
 | LIFE-05 卸载在途任务 | **PASS** | `stops observing once the plugin instance is disposed` + 协调器 close 打断在途 |
 | LIFE-06 外部服务所有权 | **PASS** | Jey 从不启动/下载；`ownership: managed` 现在拒绝装载，external 不可达时如实 `LOCAL_NOT_READY` |
-| LIFE-07 自己引发工具变化 | **NOT_RUN** | 目录摘要写成"只会误失效、不会误确认"并有注释，但没在真实 `tools/change` 上验证 |
+| LIFE-07 自己引发工具变化 | **PASS** | 两条合起来：`leaves a hidden tool hidden…` 证明 Jey 自身从不 `register`/`restrict`，因此没有自我失效回路可言；`does not mark a pending decision stale for another scope’s catalog change` 与 `does mark it stale when the scope that is waiting got a different catalog` 则把"无关 agent 不被反复判 stale"钉成一对反例（先让两个作用域被展示不同目录，否则两条断言在旧的单一摘要下会同时通过）。摘要在 `system-prompt/assemble` 上按作用域刷新；宿主的 `tools/change` 是零参数、不分作用域的广播，没法从它拿到"谁的目录变了" |
 | LIFE-08 反馈去重 | **PASS** | core 属性 + `one attempt is counted once, not once per nested dispatch` |
 | LIFE-09 轮询与重复失败 | **PARTIAL** | 重复失败已在真实 loop 上端到端验证；轮询预算只有 core 单测——DSH 结算结果里没有轮询/资源版本信号，adapter 传的是 `isPoll:false`、`resourceVersions:{}`，已在代码里写明而不是猜 |
 | LIFE-10 最终结果同步事件 | **PASS** | `execution` 行按 requestId 关联，`status` 来自真实 `tools/result` |
@@ -115,20 +115,20 @@
 
 | gate | PASS | PARTIAL | NOT_RUN | BLOCKED |
 |---|---:|---:|---:|---:|
-| host-integration | 6 | 4 | 4 | 0 |
+| host-integration | 10 | 3 | 1 | 0 |
 | property | 5 | 1 | 0 | 0 |
 | provider-contract | 8 | 2 | 0 | 0 |
-| security | 6 | 2 | 1 | 0 |
-| lifecycle | 8 | 1 | 1 | 0 |
+| security | 7 | 2 | 0 | 0 |
+| lifecycle | 9 | 1 | 0 | 0 |
 | local-inference | 4 | 0 | 1 | 0 |
 | local-offline | 0 | 1 | 0 | 1 |
 | mcp-contract | 0 | 0 | 5 | 0 |
 | pack-install | 0 | 1 | 4 | 0 |
 | semantic-eval | 0 | 0 | 4 | 0 |
 | system-eval | 0 | 0 | 4 | 0 |
-| **合计 74** | **37** | **12** | **24** | **1** |
+| **合计 74** | **43** | **11** | **19** | **1** |
 
-37 条 PASS 全部能指到具名测试或一次真实运行；24 条 NOT_RUN 是**没做过**，不是"大概能过"。
-本表的分组计数在 2026-09-27 由案例行重新逐条汇总过一遍（此前 `security` 行把一条 NOT_RUN 记成了
-PASS，且 PACK-02 整组被写成"全部 NOT_RUN"而它已有 doctor 的部分证据），以后改动案例状态时应重算，
-而不是手改汇总数字。
+43 条 PASS 全部能指到具名测试或一次真实运行；19 条 NOT_RUN 是**没做过**，不是"大概能过"。
+本表的分组计数由案例行逐条重算（2026-09-27 两次：一次纠正 `security` 把 NOT_RUN 记成 PASS、
+`PACK-02` 整组被写成全 NOT_RUN；一次在 HOST-08/09/11/14、SEC-02、LIFE-07 转 PASS 之后）。
+以后改动案例状态时应重算，而不是手改汇总数字。

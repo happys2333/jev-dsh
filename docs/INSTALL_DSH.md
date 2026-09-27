@@ -177,8 +177,11 @@ dsh web: http://127.0.0.1:<port>/?token=…
 dsh --profile web --dump-config | grep -n "id: approval"
 ```
 
-两条实测行为（`docs/HOST_CONTRACT.md` §14）：
+三条实测行为（`docs/HOST_CONTRACT.md` §14、§15）：
 
+- **要让 Jey 真的提问，两侧都得成立**：宿主组合了审批服务，且配置里
+  `features.approvalRequests: true`。只满足前者以前照样会弹窗——那个开关当时只在装载阶段
+  被检查一次，运行期没人读它。现在缺任何一侧，升级都会降级为拒绝。
 - 没有审批服务、或者那次调用没有 agent 时，Jey 把该次判定直接记成 `deny` 并附
   `approval-channel-absent`。限制效果与宿主替我们降级相同，但记录说清了是谁拒的。
 - 会话策略 `never`（无人值守姿态）由服务在任何应答者之前把每次请求判为 `rejected`。
@@ -211,7 +214,7 @@ why          provider-unreachable:no local service token resolved for /v1/capabi
 why          journal-absent:没有可读的审计文件，装载状态无从判断
 ```
 
-三条它刻意做到的事：
+两条它刻意做到的事：
 
 - **版本不匹配不写成兼容**（也相反：读不到就报 `UNKNOWN`，不替安装位置背书）。固定合同是
   `0.1.7-alpha.1`，本机装的是 `0.1.5-rc.2`，两者在"装载失败要不要中止"上行为不同，
