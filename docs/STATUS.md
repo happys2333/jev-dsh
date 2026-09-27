@@ -9,9 +9,9 @@
 | compatibility | **PASS（本地运行时）** | `artifacts/compatibility.json`：真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有 LLM 是脚本驱动器；7 个宿主测试全过，事件序列可用 `JEY_TRACE_FILE=<path> pnpm --filter jey-adapter-dsh test` 重放并逐字节比对 |
 | 实测顺序 | 已执行 | `assemble → pre-step → llm-request → pre-execute → pre-execute-decision → guard → execute → post-execute → result → assemble → …`，R-01 在运行时成立 |
 | 已证实的保护性质 | 已执行 | `pre-execute` deny 后工具体不跑；同步 guard 拒绝压过内层 waterfall 的 allow；`tools/result` 的 exec/result/content 三层全冻结、写入抛 `TypeError`；工具集只经 `PromptAssembly.tools` 投影到请求头 |
-| `ask` 授予通道 | **BLOCKED** | 探针未组合 `dsh-user-approval`；实测到文档所述降级（`ask` → 拒绝）。转为可测要求：装载时必须探测宿主审批能力，不能凭配置假定 |
+| `ask` 授予通道 | **PASS（2026-09-27 解除）** | 当初探针未组合 `dsh-user-approval`，只实测到降级。现已把真实服务装进宿主测试：授予 → 执行、拒绝 → `denied-by-host`、无人应答 → `approval-unavailable`（见 `approval.test.ts` 与 `docs/HOST_CONTRACT.md` §14）。装载时探测 `ctx.get('approval')` 的要求保留，并且现在还驱动了行为 |
 | `restrict()` 时序 | **NOT_RUN** | 与 §8.2 presentation-only gate 绑定 |
-| 发行版 overlay 加载 | **NOT_RUN** | 用 `@deepseek-ai/dsh` + `cordis.yml` 绝对路径装载，属 M2 host-integration gate |
+| 发行版 overlay 加载 | **PASS（2026-09-27）** | `scripts/host_boot_check.mjs`：固定版 launcher + 临时 `DSH_HOME` + `--patch` 装载构建产物，见 HOST-01 |
 
 已核实的事实（不是声明，是查过的）：
 
@@ -41,8 +41,8 @@ pnpm --filter jey-adapter-dsh test   # 20 测试（7 探针 + 6 闭环 + 3 cordi
 未覆盖（不记为通过）：
 
 - egress 拒绝路径只在 core 单测里覆盖；宿主级需要 local/typesafe 真实提供方（M3）。
-- `ask` 的授予仍 BLOCKED：本宿主拓扑里没有 `dsh-user-approval`。
-- `dsh` 发行入口 + `cordis.yml` overlay 的真机启动未跑（`docs/INSTALL_DSH.md` 里的命令来自官方文档，本机只验证到 testkit 拓扑）。
+- `ask` 的授予已于 2026-09-27 解除：真实 `dsh-user-approval` 组合进宿主测试，授予/拒绝/无人应答三条路径都有证据。
+- `dsh` 发行入口 + `--patch` overlay 的真机启动已于 2026-09-27 跑过（固定 `0.1.7-alpha.1`，见 HOST-01）。
 
 已补齐（原列为未覆盖）：
 
@@ -113,7 +113,7 @@ v1 明确**不重试**：重试只能有一层负责，协调器与提供方同�
 
 ## 2026-09-27 独立核查轮（D0 + P0）
 
-外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 38 PASS、11 PARTIAL、23 NOT_RUN、2 BLOCKED）。
+外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、11 PARTIAL、25 NOT_RUN、1 BLOCKED）。
 
 | 项 | 修了什么 | 钉住它的测试 |
 |---|---|---|
@@ -155,6 +155,23 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 不提供判定质量结论；HOST-02 仍是 PARTIAL，HOST-04/06/08/09/10/14 不变。原始结果与两个版本的
 对照写在 `artifacts/host_launcher_boot.json`。
 
+## 2026-09-27 审批通道与执行行（HOST-06 由 BLOCKED 转 PASS）
+
+`@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 现在是 `jey-adapter-dsh` 的直接依赖（peer 要求
+`^0.1.7-alpha.1` 与 cordis `^4.0.3`，本树满足），宿主测试里真实组合它，并挂一个终端应答者：
+
+| 路径 | 证据 | 结果 |
+|---|---|---|
+| 应答者授予 | `runs the call when a composed answerer grants it` | 工具体跑 1 次；执行行 `succeeded` 且 `appliedAction:'ask'` |
+| 应答者拒绝 | `records a human refusal as a host denial, not as a tool failure` | 工具体 0 次；执行行 `denied-by-host` / `approval-rejected` |
+| 组合了服务但无人应答 | `fails closed through the service when no answerer is composed` | 服务自己的默认 `unavailable` → `denied-by-host` / `approval-unavailable` |
+| 根本没有通道 | `records the same question as a denial when no channel can surface it` | Jey 直接记 `deny` + `approval-channel-absent`，原始成因保留在同一行里 |
+
+审批结论取自宿主持久事件对 `approval/asked` + `approval/decided`（经公开的
+`ctx.on('session/event')`），不是从 `tools/result` 的错误文本猜的——那两种情况在结果层面长得一样。
+把这条验证做完顺带暴露了两处"声明了但没执行"（缺陷 29、30），都已修：状态集合里
+`denied-by-host` / `cancelled` / `not-dispatched` 此前没有任何代码能产出。
+
 ## 过程中发现并修掉的真实缺陷
 
 1. **shadow 不惰性**：概率分支（conflict/goal/evidence）没有检查 mode，`shadow` 下仍会产出 `ask`/`deny`。属性测试在 1000 次随机输入下命中；此前的单元测试因为固定了 `snapshotFresh: false` 而走进提前返回、把它掩盖了。修法是把 mode 处理从各分支上移到唯一出口，使不变量成为结构性事实。
@@ -191,7 +208,12 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 27. **我们记过的"配置被拒 ⇒ 宿主起不来"在固定版 launcher 上不成立**（2026-09-27 实测，见"真实 launcher 核实"一节）。`0.1.7-alpha.1` 把抛错的第三方条目归为"未激活"，只输出一行 warning 然后照常 serve；同一份配置在 `0.1.5-rc.2` 上会中止启动。这不是 Jey 的缺陷，是宿主的装载策略，但后果落在我们头上：**一个配了 enforce 却装载被拒的部署，运行的是"没有 Jey"**，而第三方插件没有任何办法把自己的激活变成必需。
 28. **"Jey 已经装载并在看"此前没有任何可核对的证据**。宿主启动期的日志 exporter 是 `levels:{default:2}`，插件 info 行被过滤；off/shadow 装载成功后什么都不写。现在装载即写一行 `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用），于是"启动后审计里没有 mount 行"就是可判定的"Jey 不在"。
 
-另记：一次用 shell 打补丁的操作有 3 处替换静默没生效却报告成功，靠 grep 复核才发现；此后同类改动一律用编辑器改并回读确认。本轮仍有一次编辑器改动把 `class Job:` 换成了错误的目标行（缺陷 23），说明"回读"这一步不能省——工具说成功只代表它做了某件事，不代表那件事是对的。
+29. **执行状态集合里三个值没人能产出**：`ExecutionOutcome['status']` 声明了 `denied-by-host` / `cancelled` / `not-dispatched`，而适配器的映射只有 `isError ? 'failed' : 'succeeded'`，且被 Jey 拒掉的调用**根本不写执行行**。后果是"人说了不"、"工具自己崩了"、"Jey 拦下了"三种事实在日志里同形，而"没写行"既可能是拒绝也可能是被淘汰。写审批测试时才会撞上：授予和拒绝的结果都是 `isError`。现在五个状态都有产出的代码路径，并且用 sabotage 验证过（去掉会话事件关联，两条审批测试立刻变红）。
+30. **`approvalChannel` 曾经只影响两条分支**：`required-check-unavailable` 与 `stale-snapshot` 会因没有通道而降级为 `deny`，三个概率分支却硬编码 `ask`。于是"没有审批服务"这件事由宿主在我们之外完成，Jey 的记录里连痕迹都没有。现在统一走 `escalate()`：能问就问，不能问就自己判 `deny` 并附 `approval-channel-absent`，原始成因保留在同一条 `reasonCodes` 里。
+
+31. **"宿主的拒绝被读成允许"没有任何测试能发现**：单调合并在 core 里是对的，但适配器读宿主决定的那行 `fromPreTool` 在 core 之外；删掉它的 `deny` 分支，typecheck 与全部测试照绿，工具体照跑。补了 `keeps a later listener’s denial ahead of what Jey decides`（在 Jey 之后注册一个返回 `deny` 的 waterfall 监听器），并用"删掉分支→测试变红"验证它确实钉得住。
+
+另记：一次用 shell 打补丁的操作有 3 处替换静默没生效却报告成功，靠 grep 复核才发现；此后同类改动一律用编辑器改并回读确认。本轮仍有一次编辑器改动把 `class Job:` 换成了错误的目标行（缺陷 23），说明"回读"这一步不能省——工具说成功只代表它做了某件事，不代表那件事是对的。本轮最严重的一次同样是编辑器造成的（缺陷 31），而且它一路穿过 typecheck 和当时的全部测试，直到把它做成一次有红有绿的实验才暴露。
 
 这些都属于“看起来通过、实际不安全”一类，记录在此以便复核。
 
@@ -201,7 +223,7 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 |---|---|---|
 | cloud-inference | **BLOCKED** | 无 `TYPESAFE_API_KEY`、无调用预算。代码与 fixture 契约测试照常实现 |
 | local-inference | **已解除** | 2026-09-25 授权后完成：Python 3.12.13（uv）、SemIf 固定提交 editable 安装、3.01 GB 权重按锁校验通过。真实推理见上表。取权重过程中 HF 的 xet 传输在本机走到约 11 MB 后完全停住（进程活着，六分钟内零进展），杀掉后设 `HF_HUB_DISABLE_XET=1` 走经典 HTTP 达到 ~3 MB/s、十来分钟完成并验过 sha256——`download_weights.py` 里那行 setdefault 就是为这个，不是风格选择。第一次尝试留下的 `.incomplete` 仍躺在缓存里，不影响正确性 |
-| `ask` 授予通道 | **BLOCKED** | 本宿主拓扑没有 `dsh-user-approval`，需先组合它再测 |
+| `ask` 授予通道 | **已解除（2026-09-27）** | 把 `@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 作为直接依赖装进宿主测试，授予/拒绝/无人应答三条路径各有一条具名测试；`unavailable` 走的是服务自己的 fail-closed 默认 |
 | `restrict()` 时序 | **NOT_RUN** | §8.2 presentation-only gate；发行版 overlay 装载已于 2026-09-27 核实（HOST-01 PASS），这一项仍未做 |
 | 宿主级 egress 拒绝（真实提供方） | **NOT_RUN** | 现在具备条件：local 服务可以真跑，M5 补 |
 | secret-scan / pack-install / CI | **NOT_RUN** | M5/M7 |

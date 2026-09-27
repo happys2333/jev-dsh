@@ -17,9 +17,9 @@
 | HOST-02 真实原生调用 | **PARTIAL** | 事件顺序在真实 loop 上可追踪（`ordering.test.ts`），但模型是脚本、工具是探针，缺真模型驱动的一轮 |
 | HOST-03 组装时序 | **PASS** | `observes assemble -> pre-step -> pre-execute -> execute -> result on the real runtime`、`advertises exactly the assembled tool set to the model` |
 | HOST-04 最终输入改写 | **NOT_RUN** | `presentationFilter` 现在直接拒绝装载（`FEATURE_NOT_IMPLEMENTED`），未实现 |
-| HOST-05 宿主拒绝保持 | **PASS** | `lets a monotonic guard denial outrank a waterfall allow`、`stops the tool body when a tools/pre-execute listener denies the call`，加上属性 `Jey can never loosen the host decision` |
-| HOST-06 宿主审批保持 | **BLOCKED** | 本宿主拓扑没有 `dsh-user-approval`；先组合它再测（P1-01） |
-| HOST-07 无审批服务 | **PASS** | `degrades an ask decision to a denial because no approval service is composed` |
+| HOST-05 宿主拒绝保持 | **PASS** | `lets a monotonic guard denial outrank a waterfall allow`、`stops the tool body when a tools/pre-execute listener denies the call`、`keeps a later listener’s denial ahead of what Jey decides`（适配器读宿主决定的那一环，2026-09-27 补：删掉 `fromPreTool` 的 deny 分支时它会变红），加上属性 `Jey can never loosen the host decision` |
+| HOST-06 宿主审批保持 | **PASS** | `approval.test.ts` 组合真实的 `@deepseek-ai/dsh-user-approval`：`runs the call when a composed answerer grants it`（授予才执行，execution 行 `succeeded`+`appliedAction:'ask'`）、`records a human refusal as a host denial…`（拒绝 → `denied-by-host`/`approval-rejected`，body 0 次）、`fails closed through the service when no answerer is composed`（无人应答 → `approval-unavailable`，仍不执行）。审批结论取自宿主自己的 `approval/asked`+`approval/decided` 会话事件对，不是从结果文本猜的。边界：应答者是测试里注册的合成监听器，"人在浏览器里点按钮"没跑过 |
+| HOST-07 无审批服务 | **PASS** | `records the same question as a denial when no channel can surface it`（Jey 自己把无法弹出的 `ask` 记成 `deny` + `approval-channel-absent`，行里保留原始成因）；另有探针级 `degrades an ask decision to a denial because no approval service is composed` |
 | HOST-08 作用域同名工具 | **NOT_RUN** | 需要 scoped 注册与真实 launcher |
 | HOST-09 已有可见性约束 | **NOT_RUN** | 同上 |
 | HOST-10 嵌套工具传输 | **PARTIAL** | `rootCallId` 现在参与去重（core `progress` 单测覆盖父/子一次计数），但没在真实 PTC 传输上跑过 |
@@ -111,10 +111,10 @@
 
 | gate | PASS | PARTIAL | NOT_RUN | BLOCKED |
 |---|---:|---:|---:|---:|
-| host-integration | 6 | 4 | 3 | 1 |
+| host-integration | 6 | 4 | 4 | 0 |
 | property | 5 | 1 | 0 | 0 |
 | provider-contract | 8 | 2 | 0 | 0 |
-| security | 7 | 2 | 0 | 0 |
+| security | 6 | 2 | 1 | 0 |
 | lifecycle | 8 | 1 | 1 | 0 |
 | local-inference | 4 | 0 | 1 | 0 |
 | local-offline | 0 | 1 | 0 | 1 |
@@ -122,6 +122,8 @@
 | pack-install | 0 | 0 | 5 | 0 |
 | semantic-eval | 0 | 0 | 4 | 0 |
 | system-eval | 0 | 0 | 4 | 0 |
-| **合计 74** | **38** | **11** | **23** | **2** |
+| **合计 74** | **37** | **11** | **25** | **1** |
 
-38 条 PASS 全部能指到具名测试或一次真实运行；23 条 NOT_RUN 是**没做过**，不是"大概能过"。
+37 条 PASS 全部能指到具名测试或一次真实运行；25 条 NOT_RUN 是**没做过**，不是"大概能过"。
+本表的分组计数在 2026-09-27 由案例行重新逐条汇总过一遍（此前 `security` 行把一条 NOT_RUN 记成了
+PASS），以后改动案例状态时应重算，而不是手改汇总数字。

@@ -167,6 +167,23 @@ dsh web: http://127.0.0.1:<port>/?token=…
 
 从 overlay 里删掉那个 `id: jey` 条目并重启即可。Jey 只注册监听器和一个同步 guard，`apply` 的清理会把它们逐个注销；插件实例被换掉时 generation 递增，此前在途的判断全部作废，不会跨实例生效。
 
+## 审批通道：发行版默认就有
+
+`@deepseek-ai/dsh-base` 自己的 `cordis.patch.yml` 里就组合了 `id: approval` 的
+`@deepseek-ai/dsh-user-approval`（web/acp/headless/sdk 四个模板都建在 base 上），所以 Jey 交回的
+`ask` 在真实发行版里会走到 UI 应答者，不需要额外装载。要确认：
+
+```sh
+dsh --profile web --dump-config | grep -n "id: approval"
+```
+
+两条实测行为（`docs/HOST_CONTRACT.md` §14）：
+
+- 没有审批服务、或者那次调用没有 agent 时，Jey 把该次判定直接记成 `deny` 并附
+  `approval-channel-absent`。限制效果与宿主替我们降级相同，但记录说清了是谁拒的。
+- 会话策略 `never`（无人值守姿态）由服务在任何应答者之前把每次请求判为 `rejected`。
+  Jey 既不读也不改这个策略——它只负责把问题交出去，并如实记录回来的结论。
+
 ## 还没实现 / 没验证
 
 | 项 | 状态 |
@@ -177,6 +194,6 @@ dsh web: http://127.0.0.1:<port>/?token=…
 | 本地提供方 | 服务、真实权重、真实 TS 客户端**已跑通**（见 `docs/STATUS.md` M3）；`pip install python/` 这条路没走过，实测方式是仓库内 `.venv` + `-m local_decider.service` |
 | 断外网下的"严格离线" | **未验证**。只验证到代码路径不取网（`HF_HUB_OFFLINE=1` + `local_files_only` + 请求期不下载）；没做断网抓包级验证，所以不写"严格离线" |
 | `expectedModel` 逐字段比对 | 核心逻辑有单测（含"不匹配时提供方调用数为 0"），字段**取值**在端到端里对着 `models.lock.json` 核过；两者之间没有真机 mismatch 演练 |
-| `ask` 真正弹审批 | **BLOCKED**：需要组合 `@deepseek-ai/dsh-user-approval`，当前测试拓扑里没有它，实测到的是降级为拒绝 |
+| `ask` 真正弹审批 | **PARTIAL**：真实服务已组合并有测试（授予/拒绝/无人应答，见 `approval.test.ts`），但应答者是测试里注册的合成监听器；人在浏览器里点下按钮那条端到端路径没跑过 |
 | "Jey 装载失败就不许启动" | **宿主不提供**。`0.1.7-alpha.1` 对第三方条目只 warning 后继续 serve，`requiredStartupEntryIds` 是它自己内置的清单，没有对外开关。要这条保证只能靠外部核对（见上一节的 mount 行） |
 | `presentationFilter`（收窄模型可见工具） | **默认关闭**，且宿主合同 §8.2 的时序 gate 未通过前不应打开 |

@@ -182,6 +182,8 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 |---|---|---|
 | compatibility | **PASS（本地运行时部分）** | 顺序、工具投影、deny、guard、结果冻结均已在真实 loop/ToolRuntime 上执行并通过；`artifacts/compatibility.json` 可重放 |
 | compatibility · 发行版 overlay 加载 | **PASS** | `0.1.7-alpha.1` 真实 launcher + 临时 `DSH_HOME` + `--patch` overlay 装载构建产物；`scripts/host_boot_check.mjs` 可重放，证据 `artifacts/host_launcher_boot.json`（见 §13） |
+| compatibility · `ask` 授予通道 | **PASS** | 已组合真实 `@deepseek-ai/dsh-user-approval`，授予/拒绝/无人应答三条路径各自有测试（见 §14） |
+| compatibility · `restrict()` 时序 | **NOT_RUN** | 与 §8.2 gate 绑定，未开始 |
 
 ## 13. 真实 launcher 核实（2026-09-27 执行）
 
@@ -207,5 +209,33 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
    内置默认文本重写该目录下的 `cordis.yml`（内容幂等，但要意识到 launcher 会写用户目录）。
    `--patch` 叠加层是唯一不动用户文件的注入方式。
 
-| compatibility · `ask` 授予通道 | **BLOCKED** | 未组合审批服务；降级行为已实测并记录 |
-| compatibility · `restrict()` 时序 | **NOT_RUN** | 与 §8.2 gate 绑定，未开始 |
+## 14. 审批接缝（2026-09-27 实测）
+
+来源：`@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 的发布产物 + `@deepseek-ai/dsh-tools`
+的 `prepareExecution()` / `serviceAsk()`，都在真实宿主测试里跑过（`approval.test.ts`）。
+
+- `tools/pre-execute` 的 waterfall 结果若是 `{kind:'ask'}`，宿主在链收敛后调用
+  `ctx.get('approval')`；拿到服务就 `approval.request({ agent, toolName, callId, reason?, signal })`，
+  拿不到（或 `exec.agent` 为空）就直接拒绝。**审批是宿主拥有的通道**，Jey 不再另建一套。
+- 返回的 `ApprovalOutcome` 只有四个值，映射一对一：`allowed-once` → 放行；`rejected` /
+  `unavailable` → 拒绝（原因不同）；`cancelled` → 拒绝并标记取消。组合了服务但没有终端应答者时，
+  waterfall 的内层默认就是 `unavailable` —— fail-closed 由服务自己保证。
+- `approval.request()` **要求有开着的 turn**，否则在写审计之前抛错；因此 Jey 只能在
+  pre-execute 期间把它交回宿主，不能自己找时机发起。
+- 结果对写进会话日志：`approval/asked{id, toolName, callId?, reason?}` 与
+  `approval/decided{id, outcome}`，通过 `ctx.on('session/event', …)` 可观察（宿主持久事件通道，
+  不是私有字段）。这是 Jey 唯一能把"人说了不"和"工具跑了但失败"分开的依据：
+  `tools/result` 两种情况都是 `isError`。
+- 会话策略 `ask` / `never`：`never` 在任何应答者之前把每次请求判为 `rejected`（无人值守的严格姿态）。
+  Jey 不读这个策略，也不该读——它只负责把 `ask` 交出去并如实记录回来的结论。
+
+对 Jey 的三条后果：
+
+1. `capabilities().approvalChannel = ctx.get('approval') !== undefined` 必须真的驱动行为：
+   没有通道时 `evaluatePolicy` 产出 `deny` 并附 `approval-channel-absent`，而不是交一个
+   宿主必然替我们改成拒绝的 `ask`。限制相同，记录诚实度不同。
+2. 执行行的状态因此可达五种：`succeeded` / `failed` / `denied-by-host`（人拒绝或通道不可用）/
+   `cancelled` / `not-dispatched`（Jey 自己拒了，从未派发到）。
+3. 拒绝仍来自未知来源时（沙箱、别的插件），`tools/result` 里读不出来，只能记 `failed`；
+   这条限制写在 `jey-plugin.ts` 的注释里，不假装能区分。
+
