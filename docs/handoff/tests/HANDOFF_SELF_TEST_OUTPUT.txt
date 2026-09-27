@@ -1,0 +1,60 @@
+ADL HANDOFF HELPER TESTS ONLY — NOT PRODUCT TESTS
+
+test_all_json_parse (test_bundle_contracts.BundleContractTests.test_all_json_parse) ... ok
+test_default_off_not_auto_upload (test_bundle_contracts.BundleContractTests.test_default_off_not_auto_upload) ... ok
+test_pins_are_exact (test_bundle_contracts.BundleContractTests.test_pins_are_exact) ... ok
+test_samples_explicitly_synthetic (test_bundle_contracts.BundleContractTests.test_samples_explicitly_synthetic) ... ok
+test_tasks_are_dag_not_execution_results (test_bundle_contracts.BundleContractTests.test_tasks_are_dag_not_execution_results) ... ok
+test_test_matrix_has_74_pending_cases (test_bundle_contracts.BundleContractTests.test_test_matrix_has_74_pending_cases) ... ok
+test_types_do_not_import_host (test_bundle_contracts.BundleContractTests.test_types_do_not_import_host) ... ok
+test_unfilled_manifest_not_pass (test_bundle_contracts.BundleContractTests.test_unfilled_manifest_not_pass) ... ok
+test_cli_missing_manifest_nonzero (test_evidence_tools.EvidenceTests.test_cli_missing_manifest_nonzero) ... ok
+test_cli_reports_validity_not_test_truth (test_evidence_tools.EvidenceTests.test_cli_reports_validity_not_test_truth) ... ok
+test_cloud_declaration (test_evidence_tools.EvidenceTests.test_cloud_declaration) ... ok
+test_collection_can_report_inconclusive (test_evidence_tools.EvidenceTests.test_collection_can_report_inconclusive) ... ok
+test_dirty_qualified_rejected (test_evidence_tools.EvidenceTests.test_dirty_qualified_rejected) ... ok
+test_duplicate_artifact_id (test_evidence_tools.EvidenceTests.test_duplicate_artifact_id) ... ok
+test_duplicate_json_key (test_evidence_tools.EvidenceTests.test_duplicate_json_key) ... ok
+test_duplicate_path (test_evidence_tools.EvidenceTests.test_duplicate_path) ... ok
+test_engineering_all_required (test_evidence_tools.EvidenceTests.test_engineering_all_required) ... ok
+test_engineering_missing_gate (test_evidence_tools.EvidenceTests.test_engineering_missing_gate) ... ok
+test_hash_changed (test_evidence_tools.EvidenceTests.test_hash_changed) ... ok
+test_invalid_json_rejected (test_evidence_tools.EvidenceTests.test_invalid_json_rejected) ... ok
+test_invalid_provider_id_qualified_is_error_not_crash (test_evidence_tools.EvidenceTests.test_invalid_provider_id_qualified_is_error_not_crash) ... ok
+test_local_declaration_complete (test_evidence_tools.EvidenceTests.test_local_declaration_complete) ... ok
+test_local_mock_not_qualified (test_evidence_tools.EvidenceTests.test_local_mock_not_qualified) ... ok
+test_local_requires_offline (test_evidence_tools.EvidenceTests.test_local_requires_offline) ... ok
+test_local_requires_weights (test_evidence_tools.EvidenceTests.test_local_requires_weights) ... ok
+test_malformed_provider_and_gate_types (test_evidence_tools.EvidenceTests.test_malformed_provider_and_gate_types) ... ok
+test_manifest_self_reference (test_evidence_tools.EvidenceTests.test_manifest_self_reference) ... ok
+test_manifest_symlink_rejected (test_evidence_tools.EvidenceTests.test_manifest_symlink_rejected) ... ok
+test_missing_artifact_reference (test_evidence_tools.EvidenceTests.test_missing_artifact_reference) ... ok
+test_missing_sha_rejected (test_evidence_tools.EvidenceTests.test_missing_sha_rejected) ... ok
+test_mock_cannot_claim_real (test_evidence_tools.EvidenceTests.test_mock_cannot_claim_real) ... ok
+test_nan_json_rejected (test_evidence_tools.EvidenceTests.test_nan_json_rejected) ... ok
+test_nonobject_root (test_evidence_tools.EvidenceTests.test_nonobject_root) ... ok
+test_nonpass_collection_preserved (test_evidence_tools.EvidenceTests.test_nonpass_collection_preserved) ... ok
+test_nonpass_requires_nonempty_reason (test_evidence_tools.EvidenceTests.test_nonpass_requires_nonempty_reason) ... ok
+test_pack_deterministic_in_same_environment (test_evidence_tools.EvidenceTests.test_pack_deterministic_in_same_environment) ... ok
+test_pack_no_overwrite (test_evidence_tools.EvidenceTests.test_pack_no_overwrite) ... ok
+test_pack_not_inside_staging (test_evidence_tools.EvidenceTests.test_pack_not_inside_staging) ... ok
+test_pack_refuses_changed_content_and_cleans (test_evidence_tools.EvidenceTests.test_pack_refuses_changed_content_and_cleans) ... ok
+test_pack_validation_failure_has_no_output (test_evidence_tools.EvidenceTests.test_pack_validation_failure_has_no_output) ... ok
+test_pack_whitelist_only (test_evidence_tools.EvidenceTests.test_pack_whitelist_only) ... ok
+test_pass_requires_integer_zero (test_evidence_tools.EvidenceTests.test_pass_requires_integer_zero) ... ok
+test_path_traversal (test_evidence_tools.EvidenceTests.test_path_traversal) ... ok
+test_private_classification (test_evidence_tools.EvidenceTests.test_private_classification) ... ok
+test_private_file_names (test_evidence_tools.EvidenceTests.test_private_file_names) ... ok
+test_same_provider_for_quality (test_evidence_tools.EvidenceTests.test_same_provider_for_quality) ... ok
+test_size_wrong (test_evidence_tools.EvidenceTests.test_size_wrong) ... ok
+test_skipped_not_pass (test_evidence_tools.EvidenceTests.test_skipped_not_pass) ... ok
+test_symlink_rejected (test_evidence_tools.EvidenceTests.test_symlink_rejected) ... ok
+test_timezone_required (test_evidence_tools.EvidenceTests.test_timezone_required) ... ok
+test_unknown_provider_reference (test_evidence_tools.EvidenceTests.test_unknown_provider_reference) ... ok
+test_valid_collection (test_evidence_tools.EvidenceTests.test_valid_collection) ... ok
+test_wrong_kind_cannot_satisfy_gate (test_evidence_tools.EvidenceTests.test_wrong_kind_cannot_satisfy_gate) ... ok
+
+----------------------------------------------------------------------
+Ran 53 tests in 1.809s
+
+OK

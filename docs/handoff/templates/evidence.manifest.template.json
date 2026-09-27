@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "project": "agent-decision-layer",
+  "run_id": "replace-with-real-run-id",
+  "created_at": "REPLACE_WITH_ACTUAL_TIMESTAMP",
+  "source": {
+    "commit": "REPLACE_WITH_ACTUAL_GIT_SHA",
+    "dirty": true
+  },
+  "providers": [],
+  "artifacts": [],
+  "gates": [],
+  "template_only": true,
+  "warning": "故意不满足校验。由真实测试runner填写，不要将模板内容当作测试结果。"
+}
