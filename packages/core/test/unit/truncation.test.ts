@@ -52,25 +52,41 @@ test('a truncated payload is always still parseable JSON', () => {
   }
 })
 
-test('protected leaves are shortened instead of failing, and say so', () => {
+test('protected content is never shortened; the fit fails instead', () => {
   const r = fitToBudget([{ id: 'policy', kind: 'policy', value: { constraints: [CJK.repeat(6)] } }], 120)
-  assert.equal(r.ok, true)
-  if (r.ok) {
-    const omission = r.omissions.find(o => o.path.startsWith('policy'))
-    assert.ok(omission !== undefined, 'the shortening must be reported, not silent')
-    assert.ok(omission.originalBytes > omission.keptBytes)
-    const text = (r.state.policy as { constraints: string[] }).constraints[0] as string
-    assert.ok(text.endsWith('…'))
-    assert.equal(Buffer.compare(Buffer.from(text, 'utf8'), Buffer.from(CJK.repeat(6), 'utf8')), -1)
+  assert.equal(r.ok, false, 'a policy statement trimmed to fit is not a policy statement')
+  if (!r.ok) {
+    assert.equal(r.code, 'INSUFFICIENT_CONTEXT')
+    assert.ok(r.neededBytes > 120, 'the caller has to be told how much was actually needed')
   }
 })
 
-test('no codepoint is split at the cut', () => {
+test('a multi-byte payload that cannot fit is not mangled into valid-looking text', () => {
   const r = fitToBudget([{ id: 'policy', kind: 'policy', value: { note: '🥲'.repeat(40) } }], 60)
-  assert.equal(r.ok, true)
-  if (r.ok) {
-    const text = (r.state.policy as { note: string }).note
-    assert.equal(text.includes('\uFFFD'), false, 'replacement char means a split codepoint')
+  assert.equal(r.ok, false)
+})
+
+test('R09: a long shell command keeps its trailing operation or the request is not made', () => {
+  // The regression this whole change is about: the dangerous tail used to be the part
+  // that got cut, while the payload still reported success.
+  const dangerous = '; rm -rf /var/lib/postgresql'
+  const command = `backup --db orders `.repeat(300) + dangerous
+  const sections: StateSection[] = [
+    { id: 'policy', kind: 'policy', value: { constraints: ['read-only inspection'] } },
+    { id: 'call', kind: 'current-call', value: { tool: 'shell', arguments: { command } } },
+    { id: 'chat', kind: 'conversation', value: [{ role: 'user', text: 'older context' }] },
+  ]
+  const r = fitToBudget(sections, 256)
+  assert.equal(r.ok, false, 'dropping the conversation is not enough here, so nothing may be sent')
+  if (!r.ok) assert.match(r.reason, /policy and current call/)
+
+  // With room for the call, history goes first and the command survives intact.
+  const fits = fitToBudget(sections, 6000)
+  assert.equal(fits.ok, true)
+  if (fits.ok) {
+    const call = fits.state.call as { arguments: { command: string } }
+    assert.equal(call.arguments.command, command, 'the judged arguments must be the real ones')
+    assert.ok(call.arguments.command.endsWith(dangerous))
   }
 })
 
