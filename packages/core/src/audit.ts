@@ -54,7 +54,34 @@ export interface AuditDiagnostic {
   readonly at: number
 }
 
-export type Auditable = AuditEvent | AuditDiagnostic
+/**
+ * What the host finally did with the call, appended after the fact.
+ *
+ * A decision row is written before dispatch and is never rewritten, so it can only say
+ * `execution: null`. Without this second row, "the model answered" is all a reader can
+ * see, and a call that failed, was refused by the host, or was cancelled looks the same
+ * as one that succeeded. Correlation is by `requestId`, which is minted, not derived from
+ * content.
+ */
+export interface AuditExecution {
+  readonly kind: 'execution'
+  readonly auditId: string
+  readonly requestId: string
+  readonly sessionId: string
+  readonly agentId: string
+  readonly toolName: string
+  readonly status: ExecutionOutcome['status']
+  readonly hostDecision: HostDecision['kind'] | null
+  readonly appliedAction: DecisionAction | null
+  readonly failureCode: string | null
+  readonly at: number
+}
+
+const EXECUTION_STATUSES: readonly ExecutionOutcome['status'][] = [
+  'succeeded', 'failed', 'denied-by-host', 'cancelled', 'not-dispatched',
+]
+
+export type Auditable = AuditEvent | AuditDiagnostic | AuditExecution
 
 const AUDIT_ID_PREFIX = 'aud_'
 
@@ -87,10 +114,17 @@ const DECISION_KEYS = [
 
 const DIAGNOSTIC_KEYS = ['kind', 'auditId', 'requestId', 'sessionId', 'reason', 'at'] as const
 
+const EXECUTION_KEYS = [
+  'kind', 'auditId', 'requestId', 'sessionId', 'agentId', 'toolName', 'status', 'hostDecision',
+  'appliedAction', 'failureCode', 'at',
+] as const
+
 /** Exactly the declared keys, no extras, no omissions. */
 function fieldCheck(event: Auditable): string[] {
   const record = event as unknown as Record<string, unknown>
-  const required: readonly string[] = event.kind === 'decision' ? DECISION_KEYS : DIAGNOSTIC_KEYS
+  const required: readonly string[] = event.kind === 'decision' ? DECISION_KEYS
+    : event.kind === 'execution' ? EXECUTION_KEYS
+      : DIAGNOSTIC_KEYS
   const problems: string[] = []
   for (const key of required) if (!(key in record)) problems.push(`missing:${key}`)
   for (const key of Object.keys(record)) if (!required.includes(key)) problems.push(`unknown:${key}`)
@@ -100,6 +134,9 @@ function fieldCheck(event: Auditable): string[] {
     if (typeof record.synthetic !== 'boolean') problems.push('bad:synthetic')
     if (!Array.isArray(record.questionStatuses)) problems.push('bad:questionStatuses')
     if (typeof record.egressOccurred !== 'boolean') problems.push('bad:egressOccurred')
+  }
+  if (record.kind === 'execution' && !EXECUTION_STATUSES.includes(record.status as ExecutionOutcome['status'])) {
+    problems.push('bad:status')
   }
   return problems
 }
@@ -125,8 +162,20 @@ export function parseAuditLine(line: string): Auditable {
   } catch {
     throw new AuditSchemaError(['malformed-json'], 'audit line is not JSON')
   }
-  if (!isRecord(raw) || raw.kind !== 'decision' && raw.kind !== 'diagnostic') {
+  if (!isRecord(raw) || (raw.kind !== 'decision' && raw.kind !== 'diagnostic' && raw.kind !== 'execution')) {
     throw new AuditSchemaError(['bad:kind'], 'audit line is not a known event kind')
+  }
+  if (raw.kind === 'execution') {
+    const extra = Object.keys(raw).filter(k => !(EXECUTION_KEYS as readonly string[]).includes(k))
+    if (extra.length > 0) throw new AuditSchemaError(extra.map(k => `unknown:${k}`), 'audit line carries undeclared fields')
+    if (typeof raw.auditId !== 'string' || !raw.auditId.startsWith(AUDIT_ID_PREFIX)) throw new AuditSchemaError(['bad:auditId'], 'audit line id was not minted here')
+    if (!EXECUTION_STATUSES.includes(raw.status as ExecutionOutcome['status'])) {
+      throw new AuditSchemaError(['bad:status'], 'audit line reports an unknown execution status')
+    }
+    for (const key of ['requestId', 'sessionId', 'agentId', 'toolName']) {
+      if (typeof raw[key] !== 'string') throw new AuditSchemaError([`bad:${key}`], `audit line ${key} is not a string`)
+    }
+    return raw as unknown as Auditable
   }
   if (raw.kind === 'decision') {
     const extra = Object.keys(raw).filter(k => !(DECISION_KEYS as readonly string[]).includes(k))
@@ -331,8 +380,7 @@ export function publicSnapshot(ref: SnapshotRef, key: string | null): SnapshotRe
  * arguments so that "the model answered", "policy said deny" and "the host refused"
  * cannot be conflated by construction, and so a missing stage is a visible null
  * rather than a plausible-looking summary.
- */
-export function recordDecision(input: DecisionRecord): AuditEvent {
+ */export function recordDecision(input: DecisionRecord): AuditEvent {
   const { response, action, reasonCodes, hostDecision, execution, stale } = input
   return {
     kind: 'decision',
@@ -355,6 +403,41 @@ export function recordDecision(input: DecisionRecord): AuditEvent {
     egressOccurred: response.egress.occurred,
     stale,
     truncatedPaths: input.truncatedPaths ?? [],
+    at: input.at ?? Date.now(),
+  }
+}
+
+export interface ExecutionRecord {
+  readonly requestId: string
+  readonly sessionId: string
+  readonly agentId: string
+  readonly toolName: string
+  readonly status: ExecutionOutcome['status']
+  readonly hostDecision?: HostDecision | null
+  readonly appliedAction?: DecisionAction | null
+  readonly failureCode?: string | null
+  readonly at?: number
+}
+
+/**
+ * The row that says what the host finally did.
+ *
+ * `status: 'not-dispatched'` is the honest value for a call that was refused before the
+ * tool body ran — a decision to deny has no execution, and inventing `succeeded` for it
+ * would be the exact conflation §4.1 exists to prevent.
+ */
+export function recordExecution(input: ExecutionRecord): AuditExecution {
+  return {
+    kind: 'execution',
+    auditId: mintAuditId(),
+    requestId: input.requestId,
+    sessionId: input.sessionId,
+    agentId: input.agentId,
+    toolName: input.toolName,
+    status: input.status,
+    hostDecision: input.hostDecision?.kind ?? null,
+    appliedAction: input.appliedAction ?? null,
+    failureCode: input.failureCode ?? null,
     at: input.at ?? Date.now(),
   }
 }

@@ -58,6 +58,8 @@ interface LoopOptions {
   readonly sessions?: readonly string[]
   /** Replace the injected provider, e.g. to control the identity it reports. */
   readonly provider?: MockProvider
+  /** Make every audit write fail, to exercise the fail-closed setting. */
+  readonly failAudit?: boolean
 }
 
 async function mountLoop(
@@ -68,7 +70,9 @@ async function mountLoop(
   resetProbeToolBodyCalls()
   setProbeToolFailure(options.failTool === true)
   const lines: string[] = []
-  const audit: LineSink = { writeLine: line => { lines.push(line) } }
+  const audit: LineSink = options.failAudit === true
+    ? { writeLine: () => { throw new Error('simulated unavailable audit storage') } }
+    : { writeLine: line => { lines.push(line) } }
   const provider = options.provider ?? new MockProvider(answers)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
@@ -140,8 +144,17 @@ describe('Jey closed loop on a real DSH agent', () => {
     assert.equal(record.synthetic, true, 'a mock answer is always labelled synthetic')
     assert.equal(record.egressOccurred, false)
     assert.equal(record.snapshot.taskVersion, 1, 'the user message reached the task state')
-    assert.deepEqual(scanJournal(`${loop.lines.join('\n')}\n`).isolated, [])
-    assert.equal(scanJournal(`${loop.lines.join('\n')}\n`).confirmed.length, 1)
+    const written = scanJournal(`${loop.lines.join('\n')}\n`)
+    assert.deepEqual(written.isolated, [])
+    // One decision row, and the execution row that now follows it: the decision alone
+    // cannot say whether the call worked, which is why the second row exists.
+    assert.deepEqual(written.confirmed.map(r => r.kind), ['decision', 'execution'])
+    const execution = written.confirmed[1]
+    if (execution?.kind === 'execution') {
+      assert.equal(execution.status, 'succeeded')
+      assert.equal(execution.requestId, record.requestId, 'the two rows must correlate')
+      assert.equal(execution.toolName, PROBE_TOOL_NAME)
+    }
     loop.runtime.close()
   })
 
@@ -364,7 +377,13 @@ describe('Jey closed loop on a real DSH agent', () => {
     const paused = decisions(loop.runtime).at(-1)
     assert.equal(paused?.action, 'deny')
     assert.ok(paused?.reasonCodes.some(c => c.startsWith('hard-rule:path-paused')), JSON.stringify(paused?.reasonCodes))
-    assert.equal(scanJournal(`${loop.lines.join('\n')}\n`).confirmed.length, 4)
+    // Four decisions; only the three that dispatched produced an execution row, because
+    // the fourth was refused before the tool body ran.
+    const rows = scanJournal(`${loop.lines.join('\n')}\n`).confirmed
+    assert.equal(rows.filter(r => r.kind === 'decision').length, 4)
+    assert.equal(rows.filter(r => r.kind === 'execution').length, 3)
+    assert.deepEqual(rows.filter(r => r.kind === 'execution').map(r => r.kind === 'execution' && r.status),
+      ['failed', 'failed', 'failed'])
     loop.runtime.close()
   })
 
@@ -391,7 +410,11 @@ describe('Jey closed loop on a real DSH agent', () => {
       const [record] = decisions(loop.runtime)
       assert.ok(record)
       assert.ok(record.reasonCodes.some(c => c.startsWith('insufficient-context:')), JSON.stringify(record.reasonCodes))
-      assert.equal(record.snapshot.callDigest !== null, true, 'the call is still identified in the audit trail')
+      // Correlation is by the minted requestId, not by publishing a digest of the
+      // arguments: a short argument set is one guess away from being reversed, which is
+      // why `publicSnapshot` drops it when no audit key is configured.
+      assert.match(record.requestId, /^req_/)
+      assert.equal(record.snapshot.callDigest, null, 'no key means no published argument digest')
       assert.ok(record.truncatedPaths.some(p => p.startsWith('insufficient:')), JSON.stringify(record.truncatedPaths))
       assert.equal(record.action, 'abstain', 'in shadow Jey adds no restriction of its own')
       // Execution is deliberately not asserted here: the widened arguments also violate
@@ -402,6 +425,47 @@ describe('Jey closed loop on a real DSH agent', () => {
     } finally {
       if (previous === undefined) delete process.env.JEY_PROBE_ARG_KEYS
       else process.env.JEY_PROBE_ARG_KEYS = previous
+    }
+  })
+
+  it('fails closed on the very call whose audit row could not be written', async () => {
+    // R07: the failed write only raised a flag, so the call that discovered it still
+    // dispatched and only the *next* one was refused. A setting named fail-closed must
+    // not let one unaudited action through.
+    resetProbeToolBodyCalls()
+    const loop = await mountLoop(jeyConfig({
+      audit: { onFailure: 'fail-closed-before-dispatch' },
+    }), { 'advances-goal': 0.9, 'evidence-sufficient': 0.9, 'conflicts-with-constraint': 0.1 }, { failAudit: true })
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    assert.equal(probeToolBodyCalls().length, 0, 'the call whose own row did not land must not run')
+    assert.equal(loop.runtime.auditBlocked, true)
+    loop.runtime.close()
+  })
+
+  it('bounds the in-memory decision rows to the configured retention', async () => {
+    // R08: `retainedEvents` limited the journal, while the adapter's own array grew one
+    // entry per call for the lifetime of the host process.
+    const loop = await mountLoop(jeyConfig({ audit: { retainedEvents: 1 } }))
+    for (let turn = 0; turn < 4; turn += 1) await runTurn(loop.ctx, loop.agent, 'note this down')
+    assert.ok(loop.runtime.records.length <= 1, `retained ${loop.runtime.records.length} rows for a limit of 1`)
+    loop.runtime.close()
+  })
+
+  it('publishes an argument digest only when a key makes it irreversible', async () => {
+    const previous = process.env.JEY_AUDIT_KEY
+    process.env.JEY_AUDIT_KEY = 'a-key-that-never-leaves-this-test'
+    try {
+      const loop = await mountLoop(jeyConfig())
+      await runTurn(loop.ctx, loop.agent, 'note this down')
+      const [record] = decisions(loop.runtime)
+      const digest = record?.snapshot.callDigest
+      assert.match(String(digest), /^hmac:/, 'keyed, so publishable')
+      assert.ok(typeof digest === 'string' && digest.length > 'hmac:'.length)
+      loop.runtime.close()
+    } finally {
+      if (previous === undefined) delete process.env.JEY_AUDIT_KEY
+      else process.env.JEY_AUDIT_KEY = previous
     }
   })
 

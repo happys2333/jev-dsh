@@ -69,13 +69,18 @@ describe('jey plugin loaded through its real cordis entry point', () => {
       const text = readFileSync(path, 'utf8')
       const scan = scanJournal(text)
       assert.deepEqual(scan.isolated, [], `unexpected isolated lines: ${JSON.stringify(scan.isolated)}`)
-      assert.equal(scan.confirmed.length, 1)
-      const record = scan.confirmed[0] as AuditEvent
+      const decisions = scan.confirmed.filter(r => r.kind === 'decision')
+      assert.equal(decisions.length, 1, JSON.stringify(scan.confirmed.map(r => r.kind)))
+      // The execution row that follows is the point: a decision row alone cannot say
+      // whether anything ran, and it must never be rewritten after the fact.
+      assert.deepEqual(scan.confirmed.map(r => r.kind), ['decision', 'execution'])
+      const record = decisions[0] as AuditEvent
       assert.equal(record.kind, 'decision')
       assert.equal(record.action, 'abstain')
       assert.equal(record.hostDecision, 'allow')
       assert.equal(record.synthetic, true, 'the internally constructed provider is still labelled synthetic')
-      assert.deepEqual(parseAuditLine(text.trim()), record)
+      assert.equal(record.execution, null, 'the decision row stays as written before dispatch')
+      assert.deepEqual(parseAuditLine(text.trim().split('\n')[0] as string), record)
       await ctx.fiber.dispose()
     } finally {
       if (previous === undefined) delete process.env.JEY_AUDIT_PATH

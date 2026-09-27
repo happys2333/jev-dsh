@@ -3,12 +3,12 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'n
 import { dirname } from 'node:path'
 import type { Context, Events } from '@deepseek-ai/cordis'
 import type {
-  DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
+  DecisionAction, DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
 } from 'jey-contracts'
 import {
   AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assertSupported, assessmentState, buildSnapshot, calibrationApplies, checkEgress,
-  compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
-  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
+  compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, publicSnapshot, recordExecution, sha256, shouldBlockDispatch,
+  type AuditEvent, type EmitResult, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
 } from 'jey-core'
 import { MockProvider } from './providers/mock.ts'
 import { ExpectedProvider } from './identity.ts'
@@ -250,8 +250,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     maxLineBytes: config.audit.maxFileBytes,
     now,
   })
-  const coordinator = new DecisionCoordinator(deps.provider, {
-    limits: {
+  const coordinator = new DecisionCoordinator(deps.provider, {    limits: {
       maxConcurrent: config.limits.maxConcurrent,
       maxQueue: config.limits.maxQueue,
       deadlineMs: config.limits.deadlineMs,
@@ -268,6 +267,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   })
 
   const records: AuditEvent[] = []
+  // Argument digests may only be published where a key makes them non-reversible; without
+  // one, `publicSnapshot` drops them. The key comes from the environment and never from
+  // model-visible config, because a key the observed thing can set is not a key.
+  const auditKey = process.env.JEY_AUDIT_KEY ?? null
   /**
    * One entry per session-and-agent. Sharing these across scopes was R03: with two
    * agents live, whichever spoke last became the other one's goal.
@@ -384,8 +387,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   }
 
   /**
-   * Record what happened. `observation` is null on every path that never reached a
-   * provider, which is exactly the case a fabricated "answer" would otherwise disguise.
+   * What happened, as one immutable row. `observation` is null on every path that never
+   * reached a provider, which is exactly the case a fabricated "answer" would otherwise
+   * disguise. The snapshot is published through `publicSnapshot`, so an argument digest
+   * only reaches the log when a key makes it non-reversible.
    */
   function record(input: {
     readonly request: DecisionRequest
@@ -396,7 +401,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     readonly observation: { providerKind: AuditEvent['providerKind']; model: string; templateDigest: string; synthetic: boolean; egress: boolean; statuses: AuditEvent['questionStatuses']; timing: AuditEvent['timing'] } | null
     readonly stale?: boolean
     readonly truncatedPaths: readonly string[]
-  }): void {
+  }): EmitResult {
     const event: AuditEvent = {
       kind: 'decision',
       auditId: mintAuditId(),
@@ -407,12 +412,14 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       synthetic: input.observation?.synthetic ?? true,
       resolvedModel: input.observation?.model ?? 'not-called',
       templateDigest: input.observation?.templateDigest ?? 'sha256:none',
-      snapshot: input.ref,
+      snapshot: publicSnapshot(input.ref, auditKey),
       timing: input.observation?.timing ?? { queueMs: 0, inferenceMs: 0, totalMs: 0 },
       questionStatuses: input.observation?.statuses ?? input.request.questions.map(q => ({ id: q.id, status: 'error' as const })),
       action: input.action,
       reasonCodes: [...input.reasonCodes],
       hostDecision: input.hostDecision?.kind ?? null,
+      // Always null here, and honestly so: this row is written before dispatch. What the
+      // host finally did arrives as its own `execution` row, keyed by requestId.
       execution: null,
       failureCode: null,
       egressOccurred: input.observation?.egress ?? false,
@@ -421,13 +428,31 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       at: now(),
     }
     records.push(event)
-    const written = journal.emit(event)
-    if (shouldBlockDispatch(config.audit.onFailure, written)) {
-      runtime.auditBlocked = true
-    }
+    // The in-memory view is what a `doctor` reads, so it has to obey the same bound as
+    // the journal; an unbounded array here grew for the lifetime of the host process.
+    while (records.length > config.audit.retainedEvents) records.shift()
+    return journal.emit(event)
   }
 
   const hardRules = (exec: Executable): string[] => hardRulesFor(runtime.progress, exec)
+
+  /**
+   * Record the outcome and produce the decision to hand back. When the configuration
+   * requires an audit row and this call's row did not land, the call is refused *now* —
+   * waiting for the next call to notice the flag would let one unaudited action through,
+   * which is precisely what a fail-closed setting is supposed to prevent.
+   */
+  function conclude(
+    input: Parameters<typeof record>[0],
+    decision: HostDecision,
+    approvalChannel: boolean,
+  ): HostDecision {
+    const written = record(input)
+    if (!shouldBlockDispatch(config.audit.onFailure, written)) return decision
+    runtime.auditBlocked = true
+    const reason = `jey: audit required but this decision could not be written (${written.reason})`
+    return approvalChannel ? { kind: 'ask', reason } : { kind: 'deny', reason }
+  }
 
   const errorOutcomes = (request: DecisionRequest, code: ErrorCode): readonly QuestionOutcome[] =>
     request.questions.map(q => ({ id: q.id, status: 'error' as const, code, retryable: false }))
@@ -537,8 +562,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       // The call's own arguments did not fit. Trimming them and answering anyway would
       // be a verdict about text the provider never saw (spec 5.2).
       const policy = evaluatePolicy({ mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, 'INSUFFICIENT_CONTEXT') })
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: [`insufficient-context:${neededBytes}`, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
-      return toPreTool(policy.combined)
+      return toPreTool(conclude(
+        { request, ref, truncatedPaths: truncated, reasonCodes: [`insufficient-context:${neededBytes}`, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
+        policy.combined, approvalChannel,
+      ))
     }
 
     if (violations.length > 0) {
@@ -587,8 +614,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const policy = evaluatePolicy({
         mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, 'EGRESS_DENIED'),
       })
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: [...egress.reasons, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
-      return toPreTool(policy.combined)
+      return toPreTool(conclude(
+        { request, ref, truncatedPaths: truncated, reasonCodes: [...egress.reasons, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
+        policy.combined, approvalChannel,
+      ))
     }
 
     // Find out what this provider can answer before spending a request on it. Both the
@@ -598,8 +627,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const policy = evaluatePolicy({
         mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, refusal.code),
       })
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: [refusal.reason, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
-      return toPreTool(policy.combined)
+      return toPreTool(conclude(
+        { request, ref, truncatedPaths: truncated, reasonCodes: [refusal.reason, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
+        policy.combined, approvalChannel,
+      ))
     }
 
     const outcome = await coordinator.submit(request, { signal: exec.signal })
@@ -609,8 +640,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
         : outcome.kind === 'cancelled' ? 'CANCELLED' : 'TIMEOUT'
       const policy = evaluatePolicy({ mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, code) })
       const why = outcome.kind === 'failed' ? `provider:${outcome.code}` : `coordinator:${outcome.kind}`
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: [why, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
-      return toPreTool(policy.combined)
+      return toPreTool(conclude(
+        { request, ref, truncatedPaths: truncated, reasonCodes: [why, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
+        policy.combined, approvalChannel,
+      ))
     }
 
     // What the state looks like *now*, from the same code that built the captured ref.
@@ -682,20 +715,61 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const fallback: HostDecision = approvalChannel
         ? { kind: 'ask', reason: 'jey: snapshot stale' }
         : { kind: 'deny', reason: 'jey: snapshot stale' }
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes, ...calibrationNotes], action: policy.action, hostDecision: host, observation, stale: true })
-      return toPreTool(host.kind === 'deny' || host.kind === 'cancel' ? host : fallback)
+      return toPreTool(conclude({
+        request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes, ...calibrationNotes],
+        action: policy.action, hostDecision: host, observation, stale: true,
+      }, host.kind === 'deny' || host.kind === 'cancel' ? host : fallback, approvalChannel))
     }
     if (resolution.kind === 'already-applied') {
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: ['already-applied'], action: 'abstain', hostDecision: host, observation })
-      return toPreTool(host)
+      return toPreTool(conclude({
+        request, ref, truncatedPaths: truncated, reasonCodes: ['already-applied'],
+        action: 'abstain', hostDecision: host, observation,
+      }, host, approvalChannel))
     }
-    record({ request, ref, truncatedPaths: truncated, reasonCodes: [...policy.reasonCodes, ...calibrationNotes], action: policy.action, hostDecision: host, observation })
-    return toPreTool(resolution.decision)
+    // Remember what was applied, keyed by the host's own call identity, so the settled
+    // result can be published as its own row and correlated back to this decision.
+    trackDispatch(exec, request, resolution.decision)
+    return toPreTool(conclude({
+      request, ref, truncatedPaths: truncated, reasonCodes: [...policy.reasonCodes, ...calibrationNotes],
+      action: policy.action, hostDecision: host, observation,
+    }, resolution.decision, approvalChannel))
+  }
+
+  /**
+   * Decisions that reached the point of dispatch, awaiting their outcome. Bounded
+   * because a long-running host must not accumulate one entry per call forever; the
+   * oldest are dropped, and a dropped entry simply means that call has no execution row.
+   */
+  const dispatched = new Map<string, { readonly requestId: string, readonly sessionId: string, readonly agentId: string, readonly toolName: string, readonly action: DecisionAction }>()
+  const DISPATCH_CAP = 256
+
+  function trackDispatch(
+    exec: Executable & { readonly rootCallId?: string | null },
+    request: DecisionRequest,
+    decision: HostDecision,
+  ): void {
+    if (exec.rootCallId === undefined || exec.rootCallId === null) return
+    if (decision.kind === 'deny' || decision.kind === 'cancel') return
+    dispatched.set(exec.rootCallId, {
+      requestId: request.requestId,
+      sessionId: scopeKeyOf(exec),
+      agentId: scopeKeyOf(exec),
+      toolName: exec.name,
+      action: decision.kind === 'ask' ? 'ask' : 'abstain',
+    })
+    while (dispatched.size > DISPATCH_CAP) {
+      const oldest = dispatched.keys().next()
+      if (oldest.done === true) break
+      dispatched.delete(oldest.value)
+    }
   }
 
   // Network-free by construction: nothing here may await, so it can only speak about
   // facts the plugin already holds.
   const guardOff = ctx.tools.guard(execution => {
+    // A journal the configuration requires and cannot write is a reason not to run
+    // something, and the guard is the last gate before the body.
+    if (runtime.auditBlocked) return 'jey: audit required but unwritable'
     const violations = hardRules(execution)
     return violations.length > 0 ? `jey: ${violations.join(', ')}` : undefined
   })
@@ -705,6 +779,21 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     scope.sequence += 1
     scope.recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })
     if (scope.recentResults.length > HISTORY_CAP) scope.recentResults.shift()
+    const callId = exec.rootCallId ?? null
+    const pending = callId === null ? undefined : dispatched.get(callId)
+    if (callId !== null && pending !== undefined) {
+      dispatched.delete(callId)
+      journal.emit(recordExecution({
+        requestId: pending.requestId,
+        sessionId: pending.sessionId,
+        agentId: pending.agentId,
+        toolName: exec.name,
+        status: result.isError ? 'failed' : 'succeeded',
+        appliedAction: pending.action,
+        failureCode: result.isError ? 'tool-reported-error' : null,
+        at: now(),
+      }))
+    }
     runtime.progress = observeCall(runtime.progress, {
       ...pathIdentity(exec),
       status: result.isError ? 'failure' : 'success',
