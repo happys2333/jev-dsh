@@ -21,7 +21,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { scanJournal, type AuditEvent, type AuditExecution, type Auditable, type LineSink } from 'jey-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
-import { MockProvider } from '../../src/providers/mock.ts'
+import { MockProvider } from 'jey-provider-mock'
 import { probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../src/probe-tool.ts'
 import { PROBE_LLM_ROUTE, scriptedLlmPlugin } from '../../src/scripted-llm.ts'
 

@@ -31,6 +31,7 @@
     "jey-contracts": "workspace:*",
     "jey-core": "workspace:*",
     "jey-provider-local": "workspace:*",
+    "jey-provider-mock": "workspace:*",
     "jey-provider-typesafe": "workspace:*"
   },
   "devDependencies": {

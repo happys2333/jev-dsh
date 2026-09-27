@@ -20,7 +20,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool, type ToolDefinition, type ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { scanJournal, type AuditEvent } from 'jey-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
-import { MockProvider } from '../../src/providers/mock.ts'
+import { MockProvider } from 'jey-provider-mock'
 import { scriptedLlmPlugin } from '../../src/scripted-llm.ts'
 
 const LEAF = 'jey_leaf'

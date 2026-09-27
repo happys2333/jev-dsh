@@ -11,7 +11,7 @@ import {
   compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, publicSnapshot, recordExecution, sha256, shouldBlockDispatch,
   type AuditEvent, type EmitResult, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
 } from 'jey-core'
-import { MockProvider } from './providers/mock.ts'
+import { MockProvider } from 'jey-provider-mock'
 import { ExpectedProvider } from './identity.ts'
 import { TypesafeProvider } from 'jey-provider-typesafe'
 import { LocalProvider } from 'jey-provider-local'
