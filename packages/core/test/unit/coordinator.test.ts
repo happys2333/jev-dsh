@@ -205,10 +205,23 @@ test('a late answer after the deadline is a diagnostic, not a second terminal st
   assert.equal(diagnostics[0]?.kind, 'timeout-after-answer')
 })
 
-test('a failed observation reports the provider error code', async () => {
+test('a failed observation reports the provider error code and its own retryable claim', async () => {
   const provider = new ScriptedProvider(async (_i, req) => ({ ...response(req), status: 'failed' as const, outcomes: [{ id: IDS.goal, status: 'error' as const, code: 'RATE_LIMIT' as const, retryable: true }] }))
   const c = coordinator(provider)
-  assert.deepEqual(await c.submit(request('a'), { signal: new AbortController().signal }), { kind: 'failed', code: 'RATE_LIMIT' })
+  assert.deepEqual(await c.submit(request('a'), { signal: new AbortController().signal }), { kind: 'failed', code: 'RATE_LIMIT', retryable: true })
+})
+
+test('a failure the provider does not mark retryable is not made retryable on the way out', async () => {
+  const provider = new ScriptedProvider(async (_i, req) => ({ ...response(req), status: 'failed' as const, outcomes: [{ id: IDS.goal, status: 'error' as const, code: 'TIMEOUT' as const, retryable: false }] }))
+  const c = coordinator(provider)
+  assert.deepEqual(await c.submit(request('a'), { signal: new AbortController().signal }), { kind: 'failed', code: 'TIMEOUT', retryable: false })
+})
+
+test('a provider that throws keeps both its code and its retryable claim', async () => {
+  const thrown = Object.assign(new Error('service gave up on this one'), { code: 'TIMEOUT', retryable: false })
+  const provider = new ScriptedProvider(async () => { throw thrown })
+  const c = coordinator(provider)
+  assert.deepEqual(await c.submit(request('a'), { signal: new AbortController().signal }), { kind: 'failed', code: 'TIMEOUT', retryable: false })
 })
 
 test('a throwing provider fails the run rather than hanging it', async () => {
@@ -216,6 +229,8 @@ test('a throwing provider fails the run rather than hanging it', async () => {
   const c = coordinator(provider)
   const outcome = await c.submit(request('a'), { signal: new AbortController().signal })
   assert.equal(outcome.kind, 'failed')
+  // An unnamed failure invites no retries: nothing has claimed that trying again differs.
+  assert.deepEqual(outcome, { kind: 'failed', code: 'PROVIDER_ERROR', retryable: false })
 })
 
 test('closing stops admission, cancels what is queued and closes the provider', async () => {

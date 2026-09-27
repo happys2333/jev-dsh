@@ -99,7 +99,10 @@ export type CoordinatorOutcome =
   | { readonly kind: 'timed-out'; readonly stage: 'queue' | 'inference' }
   | { readonly kind: 'cancelled' }
   | { readonly kind: 'duplicate' }
-  | { readonly kind: 'failed'; readonly code: ErrorCode | 'PROVIDER_ERROR' }
+  | { readonly kind: 'failed'; readonly code: ErrorCode | 'PROVIDER_ERROR'; readonly retryable: boolean }
+  // ↑ `retryable` is the answering side's own claim, carried through unchanged; it is absent
+  //   from the other kinds because those are this file's verdicts about its own limits, not
+  //   somebody else's about their state.
   | { readonly kind: 'closed' }
 
 export interface CoordinatorLimits {
@@ -131,9 +134,9 @@ interface Waiter {
   readonly onAbort: () => void
 }
 
-function combineCodes(response: DecisionResponse): ErrorCode | null {
+function combineCodes(response: DecisionResponse): { readonly code: ErrorCode; readonly retryable: boolean } | null {
   const error = response.outcomes.find(o => o.status === 'error')
-  return error !== undefined && error.status === 'error' ? error.code : null
+  return error !== undefined && error.status === 'error' ? { code: error.code, retryable: error.retryable } : null
 }
 
 export class DecisionCoordinator {
@@ -375,11 +378,15 @@ export class DecisionCoordinator {
       finished = true
       const response = raced.response
       run.to('observed').to('validated')
-      const code = combineCodes(response)
+      const failure = combineCodes(response)
       if (response.status === 'failed') {
         run.to('failed').to('recorded')
         this.#settled.add(run.key)
-        return { kind: 'failed', code: code ?? 'PROVIDER_ERROR' }
+        // What the answering side said about trying again travels with its code. Dropping it
+        // here would push each caller to re-derive retryability from the code alone, and a
+        // code is coarser than the answer: a service distinguishes 429 from 504, both of
+        // which can reach here as a name without a verdict.
+        return { kind: 'failed', code: failure?.code ?? 'PROVIDER_ERROR', retryable: failure?.retryable ?? false }
       }
       this.#settled.add(run.key)
       return { kind: 'response', response, application: this.#guard(run) }
@@ -395,11 +402,15 @@ export class DecisionCoordinator {
       if (local.signal.aborted) return { kind: 'timed-out', stage: 'inference' }
       // A provider that names its failure gets to keep that name. Flattening
       // LOCAL_NOT_READY, AUTH and EGRESS_DENIED into one generic code would throw away
-      // exactly the distinction the policy layer and an operator need.
+      // exactly the distinction the policy layer and an operator need. The retryable flag
+      // rides along with it for the same reason: `retryable` is the answering side's claim
+      // about its own state, and a caller that re-derived it from the code would be
+      // guessing where an answer exists.
       const named = e instanceof Error && 'code' in e && isErrorCode((e as { code: unknown }).code)
         ? (e as { code: ErrorCode }).code
         : 'PROVIDER_ERROR'
-      return { kind: 'failed', code: named }
+      const declared = e instanceof Error && 'retryable' in e ? (e as { retryable: unknown }).retryable : undefined
+      return { kind: 'failed', code: named, retryable: named === 'PROVIDER_ERROR' ? false : declared === true }
     } finally {
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
