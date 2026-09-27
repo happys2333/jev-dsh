@@ -272,16 +272,24 @@ const newScope = (): ScopeState => ({
 /** One plugin instance is one generation, so a hot-swap invalidates everything in flight. */
 let generationCounter = 0
 
+/**
+ * The host facts this build was probed against, in one place so the runtime mount and
+ * the read-only doctor cannot drift into disagreeing about what the host offers.
+ * `approvalChannel` is the only part observable per-process; the other two come from
+ * `docs/HOST_CONTRACT.md` and are asserted there, not guessed here.
+ */
+export function probeCapabilities(approvalChannel: boolean): HostCapabilities {
+  return { approvalChannel, scopedRestrict: true, postExecuteWaterfall: true }
+}
+
 export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRuntime {
   const now = deps.now ?? (() => Date.now())
-  const capabilities = (): HostCapabilities => ({
+  const capabilities = (): HostCapabilities => probeCapabilities(
     // The host resolves an `ask` through this seam opportunistically; a deployment that
     // composes no ApprovalService degrades to denial, so claiming an approval channel we
     // cannot see would be a lie about a protection.
-    approvalChannel: ctx.get('approval') !== undefined,
-    scopedRestrict: true,
-    postExecuteWaterfall: true,
-  })
+    ctx.get('approval') !== undefined,
+  )
 
   const config = loadConfig(raw, capabilities())
   const generation = ++generationCounter
@@ -988,7 +996,12 @@ export function resolveCredential(reference: string | undefined): string | undef
 }
 
 /** Built from the raw config so a rejected config never reaches a provider constructor. */
-function providerFor(raw: unknown): DecisionProvider {
+/**
+ * Build the provider the validated config names. Exported for the read-only doctor, which
+ * has to probe the same object the plugin would use — a second construction path would be
+ * a second place where a config could be interpreted differently.
+ */
+export function providerFor(raw: unknown): DecisionProvider {
   const config = raw as Partial<JeyConfig>
   const provider = config.provider
   if (provider === undefined || provider.kind === 'unconfigured' || provider.kind === 'mock') return new MockProvider()

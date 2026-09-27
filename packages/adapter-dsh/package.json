@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "test": "node --test \"test/host/*.test.ts\" \"test/unit/*.test.ts\"",
-    "test:property": "echo \"no property tests in this package yet\" && exit 0"
+    "test:property": "echo \"no property tests in this package yet\" && exit 0",
+    "doctor": "node src/doctor-cli.ts"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.3",
