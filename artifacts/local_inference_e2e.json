@@ -1,5 +1,5 @@
 {
-  "endpoint": "http://127.0.0.1:1268",
+  "endpoint": "http://127.0.0.1:6093",
   "provider": {
     "kind": "local",
     "providerVersion": "local_decider/semif-0.3.35",
@@ -62,8 +62,8 @@
   },
   "timing": {
     "queueMs": 0,
-    "inferenceMs": 2672,
-    "totalMs": 2686
+    "inferenceMs": 2421,
+    "totalMs": 2430
   },
   "policy": {
     "action": "abstain",

@@ -96,7 +96,7 @@ JEY_E2E_LOCAL=1 pnpm --filter jey-provider-local test:e2e:local   # 2 pass，真
 | 隐私边界 | **PASS** | `snapshot/purpose/budget/requestId` 不出站；凭据缺失时 fetch 调用数为 0；token 不出现在任何错误文本里；审计只记别名不记 URL |
 | cloud-inference | **BLOCKED** | 无 `TYPESAFE_API_KEY`、无调用预算。20 条全是对夹具与桩传输的契约测试，**不是**真实调用记录 |
 | provider-contract（local） | **PASS（客户端 + 服务端）** | 客户端 14 条；服务端 `python/local_decider` 52 条协议/映射/锁测试（真实 socket、真实 `http.client`）：鉴权逐端点、字面 loopback 的 Host 校验、Origin 一律拒、413 双源（服务配置与请求预算取严格者）、411/404/405、422 题数超限、队列满 → 429 可重试、队列里耗尽预算 → 504、错误体与访问日志都不带请求内容 |
-| **local-inference** | **PASS（真实权重，本机 CPU）** | `Qwen_Qwen3.5-4B-Q4_K_M.gguf` sha256 与 `python/models.lock.json` 逐项相符（`13c16f42…f8a983`，3,013,027,808 字节）；加载 12–19 s（热/冷页缓存两次实测）；三条固定执行门问题 2.48–2.67 s 全 answered（两次实测，后者见 `artifacts/local_inference_e2e.json`），同一 prompt 两次打分逐位相同；`origin=native-logits`、`calibration=uncalibrated`、`outputTokens=0`、`egress.occurred=false` |
+| **local-inference** | **PASS（真实权重，本机 CPU）** | `Qwen_Qwen3.5-4B-Q4_K_M.gguf` sha256 与 `python/models.lock.json` 逐项相符（`13c16f42…f8a983`，3,013,027,808 字节）；加载 12–19 s；三条固定执行门问题 2.42–2.67 s 全 answered（多次实测，最近一次见 `artifacts/local_inference_e2e.json`），同一 prompt 两次打分逐位相同；P0 那一轮改造前后三次 pYes 完全一致（0.757 / 0.673 / 0.138）；`origin=native-logits`、`calibration=uncalibrated`、`outputTokens=0`、`egress.occurred=false` |
 | local-offline | **PASS（有限度）** | 服务只读本地已验证文件：`HF_HUB_OFFLINE=1` + `local_files_only=True`，缺 tokenizer 或权重不匹配即 `LOCAL_NOT_READY`，请求路径永不下载。未做断外网抓包验证，所以只声明"代码路径不取网"，不声明"严格离线" |
 | 模型身份门 | **PASS（新增，缺陷 26）** | `ExpectedProvider` 在发第一个请求前逐字段比对 `provider.local.expectedModel` 与服务自报身份（`sha256:` 前缀两侧归一），不匹配即不可重试的 `UNSUPPORTED_CAPABILITY` 且提供方调用数为 0；7 条单测 + 端到端里对着 `models.lock.json` 核取值 |
 
