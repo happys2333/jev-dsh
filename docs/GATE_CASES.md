@@ -1,0 +1,127 @@
+# 验收案例 → 实现侧状态
+
+核对日期：2026-09-27。代码基线见文末。这张表把交接包 `contracts/test-matrix.csv` 的 74 条案例映射到**本仓库实际执行过的命令与测试名**。
+
+规则：
+- 原件 `docs/handoff/**` 是需求与验收材料，**不改动**；它的 `status` 列全是 `NOT_RUN` 是计划初值，不代表现状,也不被本表覆盖。
+- 本表只认执行证据。`PASS` 必须能指到一个具名测试或一次真实运行；相近但不等价的工作写 `PARTIAL` 并说清差在哪。
+- 工程 gate 通过不等于模型质量合格（`semantic-eval`/`system-eval` 整组未开始）。
+
+## host-integration（14）
+
+命令：`pnpm --filter jey-adapter-dsh test`（真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有规划 LLM 是脚本驱动器）
+
+| 案例 | 状态 | 证据 / 差在哪 |
+|---|---|---|
+| HOST-01 真实 Launcher 加载 | **NOT_RUN** | 现有测试直接 `mountJey(ctx,…)`；未跑 `dsh --profile … web` + `cordis.yml` overlay（P1-01） |
+| HOST-02 真实原生调用 | **PARTIAL** | 事件顺序在真实 loop 上可追踪（`ordering.test.ts`），但模型是脚本、工具是探针，缺真模型驱动的一轮 |
+| HOST-03 组装时序 | **PASS** | `observes assemble -> pre-step -> pre-execute -> execute -> result on the real runtime`、`advertises exactly the assembled tool set to the model` |
+| HOST-04 最终输入改写 | **NOT_RUN** | `presentationFilter` 现在直接拒绝装载（`FEATURE_NOT_IMPLEMENTED`），未实现 |
+| HOST-05 宿主拒绝保持 | **PASS** | `lets a monotonic guard denial outrank a waterfall allow`、`stops the tool body when a tools/pre-execute listener denies the call`，加上属性 `Jey can never loosen the host decision` |
+| HOST-06 宿主审批保持 | **BLOCKED** | 本宿主拓扑没有 `dsh-user-approval`；先组合它再测（P1-01） |
+| HOST-07 无审批服务 | **PASS** | `degrades an ask decision to a denial because no approval service is composed` |
+| HOST-08 作用域同名工具 | **NOT_RUN** | 需要 scoped 注册与真实 launcher |
+| HOST-09 已有可见性约束 | **NOT_RUN** | 同上 |
+| HOST-10 嵌套工具传输 | **PARTIAL** | `rootCallId` 现在参与去重（core `progress` 单测覆盖父/子一次计数），但没在真实 PTC 传输上跑过 |
+| HOST-11 无 agent 的受保护调用 | **PARTIAL** | `scopeKeyOf` 把无 agent 的调用归到 `agentless` 作用域并照常计数；缺宿主级用例 |
+| HOST-12 热替换后恢复 | **PARTIAL** | generation 递增 + `stops observing once the plugin instance is disposed`；未测真实 HMR 重装 |
+| HOST-13 异常最终结果 | **PASS** | `gives tools/result observers a frozen outcome and no return channel`，且新增 execution 行记录 `failed` |
+| HOST-14 插件次序组合 | **NOT_RUN** | 需要第二个插件参与 waterfall |
+
+## property（6）
+
+命令：`pnpm --filter jey-core test:property`（16 条，全绿）
+
+| 案例 | 状态 | 证据 |
+|---|---|---|
+| POL-01 动作合并全表 | **PASS** | `Jey can never loosen the host decision` + 16 格全表单测 |
+| POL-02 重复合并幂等 | **PARTIAL** | 全表覆盖 + `an allow outcome requires an allow host`；"合并两次等于合并一次"没写成独立属性 |
+| POL-03 硬规则不依赖模型 | **PASS** | `under enforce a hard rule denies whatever the model said`、`off and shadow never restrict, whatever the inputs` |
+| POL-04 必需问题缺失 | **PASS** | `with no usable observations, enforce never abstains` |
+| POL-05 快照过期 | **PASS** | 属性 + 宿主级 `will not apply a decision whose snapshot moved while the provider was thinking` |
+| POL-06 预算并发预留 | **PASS** | `a path cannot pause before the configured identical-failure limit`、`暂停路径不会重获失败预算`（账本单测在 `budget` / `coordinator`） |
+
+裁剪相关的 4 条属性（`accepted payload never exceeds the budget`、`rejection only with INSUFFICIENT_CONTEXT`、`hard policy and this call are never dropped wholesale`、`anything removed is reported`）属于 SEC-04。
+
+## provider-contract（10）
+
+命令：`pnpm --filter jey-provider-typesafe test`（20）、`pnpm --filter jey-provider-local test`（14）
+
+| 案例 | 状态 | 证据 / 差在哪 |
+|---|---|---|
+| WIRE-01 逐题身份校验 | **PASS** | 每个 primitive 的取值/键集/求和/一致性断言；`requestId`、快照身份回镜 |
+| WIRE-02 概率边界 | **PASS** | 越界与 NaN 拒绝（core `validate` + 提供方） |
+| WIRE-03 Noul 语义 | **PASS** | noul 无 confidence 字段，不补造 |
+| WIRE-04 Score 语义 | **PASS** | 键必须是 `"0".."K-1"`，`expectedIndex=Σ(i×p_i)` 允许小数（本轮修正） |
+| WIRE-05 认证错误 | **PASS** | 缺 token 走 403，文档写 401 的偏差已记录并按实际处理 |
+| WIRE-06 限流退避 | **PARTIAL** | 429/529 标为可重试，但 v1 明确**单层不重试**；退避由调用方/宿主决定，本仓库不实现 |
+| WIRE-07 跨域重定向 | **PASS** | 3xx 一律拒绝跟随 |
+| WIRE-08 超大响应 | **PARTIAL** | 请求侧字节预算与响应结构校验都有；"响应体字节上限"依赖 HTTP 层，没有单独断言 |
+| WIRE-09 部分失败 | **PASS** | `status=ok/partial/failed` 由逐题结果决定，策略不能只看整批 |
+| WIRE-10 显式 Mock | **PASS** | `synthetic: true` 恒真且不可被配置覆盖；`enforce`+mock 装载即拒 |
+
+## security（9）
+
+| 案例 | 状态 | 证据 / 差在哪 |
+|---|---|---|
+| SEC-01 外发默认关闭 | **PASS** | `egress.mode` 默认 `deny`；属性 `mode=deny is absolute…`；宿主级 `will not send state to a cloud destination that was never allowlisted` |
+| SEC-02 不可信工具描述 | **NOT_RUN** | 提示注入边界测试属 M5 |
+| SEC-03 参数秘密最小化 | **PARTIAL** | 公共日志不再带可猜的参数摘要（`publishes an argument digest only when a key makes it irreversible`）；"参数里的秘密最小化"本身没测 |
+| SEC-04 上下文裁剪 | **PASS** | 4 条裁剪属性 + `refuses to ask a provider about a call whose own arguments do not fit the budget` |
+| SEC-05 跨会话隔离 | **PASS** | `keeps two sessions from sharing a goal, a history or a task version` + core 作用域属性 |
+| SEC-06 本地服务认证 | **PASS** | `python/tests/test_service.py`：逐端点鉴权、令牌前缀不算通过、Host/Origin 拒绝 |
+| SEC-07 未知配置 | **PASS** | schema `additionalProperties:false` 全层；`config/examples` 过真 `loadConfig` |
+| SEC-08 原始日志默认禁用 | **PASS** | `audit.rawContent` 是 `const:false` + 显式 default，且类型里没有能装原文的字段 |
+| SEC-09 权限范围绕过 | **PARTIAL** | guard 压过 waterfall allow 已测；`restrict()` 时序 gate 未过，未开 |
+
+## lifecycle（10）
+
+| 案例 | 状态 | 证据 / 差在哪 |
+|---|---|---|
+| LIFE-01 用户中途取消 | **PASS** | 协调器取消路径 + `a cancelled request is reported as cancelled, not as an answer`（真实服务 e2e） |
+| LIFE-02 排队超时 | **PASS** | 协调器 deadline；服务端 `a deadline spent while queued is a timeout…` |
+| LIFE-03 有界队列 | **PASS** | 服务端 429 `QUEUE_FULL` 测试；协调器 `maxQueue`/每会话 fairness |
+| LIFE-04 取消的 GPU 任务 | **PASS（以不撒谎的方式）** | 能力固定声明 `discard-only`；不做"已停止计算"的假确认。CPU 路线无 GPU 可测 |
+| LIFE-05 卸载在途任务 | **PASS** | `stops observing once the plugin instance is disposed` + 协调器 close 打断在途 |
+| LIFE-06 外部服务所有权 | **PASS** | Jey 从不启动/下载；`ownership: managed` 现在拒绝装载，external 不可达时如实 `LOCAL_NOT_READY` |
+| LIFE-07 自己引发工具变化 | **NOT_RUN** | 目录摘要写成"只会误失效、不会误确认"并有注释，但没在真实 `tools/change` 上验证 |
+| LIFE-08 反馈去重 | **PASS** | core 属性 + `one attempt is counted once, not once per nested dispatch` |
+| LIFE-09 轮询与重复失败 | **PARTIAL** | 重复失败已在真实 loop 上端到端验证；轮询预算只有 core 单测——DSH 结算结果里没有轮询/资源版本信号，adapter 传的是 `isPoll:false`、`resourceVersions:{}`，已在代码里写明而不是猜 |
+| LIFE-10 最终结果同步事件 | **PASS** | `execution` 行按 requestId 关联，`status` 来自真实 `tools/result` |
+
+## local-inference（5）／ local-offline（2）
+
+命令：`JEY_RUN_INFERENCE=1 python/.venv/Scripts/python.exe -m unittest tests.test_inference`、`JEY_E2E_LOCAL=1 pnpm --filter jey-provider-local test:e2e:local`
+
+| 案例 | 状态 | 证据 |
+|---|---|---|
+| LOCAL-01 加载真实权重 | **PASS** | 锁内 sha256 与实文件逐项相符；加载 12–19 s |
+| LOCAL-02 预热与常驻 | **PASS** | 常驻服务 + 状态前缀缓存：冷 1.2 s、命中 0.45–0.6 s |
+| LOCAL-03 缺失模型 | **PASS** | 缺 tokenizer/权重不符 → `LOCAL_NOT_READY`，`/v1/capabilities` 拒绝虚构身份 |
+| LOCAL-04 选项编码 | **PASS** | 答案槽必须是单 token 且拼接不回退（上游 `encode_prompt` 断言），逐题选项集回镜 |
+| LOCAL-05 相互不互斥的工具 | **NOT_RUN** | 需要评测集，属 M6 |
+| OFF-01 真实断外网 | **BLOCKED** | 需要受控进程/容器 + 负向控制证明阻断真的生效；只设了 `HF_HUB_OFFLINE` 不算 |
+| OFF-02 离线依赖未预置 | **PARTIAL** | 请求路径不下载、`local_files_only` 已测；未做断网环境验证 |
+
+## mcp-contract（5）／ pack-install（5）／ semantic-eval（4）／ system-eval（4）
+
+**全部 NOT_RUN。** `adapter-mcp` 尚未创建（P1-02），没有可安装的 tgz/wheel 与全新 home 验证（P1-04），冻结数据集/标签/校准分区/统计判定一行都没跑过（P2-01）。云端真实请求 `BLOCKED`（无凭据、无预算）。
+
+## 汇总
+
+| gate | PASS | PARTIAL | NOT_RUN | BLOCKED |
+|---|---:|---:|---:|---:|
+| host-integration | 5 | 4 | 4 | 1 |
+| property | 5 | 1 | 0 | 0 |
+| provider-contract | 8 | 2 | 0 | 0 |
+| security | 7 | 2 | 0 | 0 |
+| lifecycle | 8 | 1 | 1 | 0 |
+| local-inference | 4 | 0 | 1 | 0 |
+| local-offline | 0 | 1 | 0 | 1 |
+| mcp-contract | 0 | 0 | 5 | 0 |
+| pack-install | 0 | 0 | 5 | 0 |
+| semantic-eval | 0 | 0 | 4 | 0 |
+| system-eval | 0 | 0 | 4 | 0 |
+| **合计 74** | **37** | **11** | **24** | **2** |
+
+37 条 PASS 全部能指到具名测试或一次真实运行；24 条 NOT_RUN 是**没做过**，不是"大概能过"。

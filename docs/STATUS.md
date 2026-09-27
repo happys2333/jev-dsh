@@ -63,7 +63,7 @@ shadow 下放过同一件事，两层就会互相矛盾。核心里 `evaluatePol
 ```sh
 pnpm install                          # 成功，含真实 DSH 包
 pnpm -r typecheck                     # 0 error（strict + noUncheckedIndexedAccess + exactOptionalPropertyTypes）
-pnpm -r test                          # 144 + 20 + 14 + 29，全部 0 fail
+pnpm -r test                          # 157 + 20 + 14 + 40，全部 0 fail
 pnpm --filter jey-core test:property  # 16 properties, 16 pass, 0 fail
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .
                                       # 58 tests, OK (skipped=6)；6 条为需显式授权的真人推理测试
@@ -110,6 +110,26 @@ calibrationAvailable:false})` 得到 `abstain / no-jey-restriction`，宿主 `al
 都会以 `TIMEOUT` 失败关闭。服务端 `MAX_DEADLINE_MS` 也钉在 60000，与配置上限一致。
 
 v1 明确**不重试**：重试只能有一层负责，协调器与提供方同时重试会让请求数相乘。代价是限流会表现为一次失败的检查，由策略层按"必需检查不可用"升级，而不是被静默吞掉。
+
+## 2026-09-27 独立核查轮（D0 + P0）
+
+外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、11 PARTIAL、24 NOT_RUN、2 BLOCKED）。
+
+| 项 | 修了什么 | 钉住它的测试 |
+|---|---|---|
+| P0-01 重复失败暂停 | 读侧用 `key.includes(toolName)` 查 sha256/rootCallId 键；core 又把 pathKey 定成 `rootCallId ?? digest`，宿主每次调用新铸 id ⇒ 计数在真实使用里到不了阈值 | 真实 loop 跑 4 轮：body 恰好 3 次、第 4 次不执行、provider 不多付一次 |
+| P0-02 会话隔离 | goal/conversation/results/position/sequence 全插件共享一份；用户输入取自 inbox 最后一条 | 两个真 agent 交错，各自 goal/session/taskVersion 正确；B 说话不推进 A 的计数 |
+| P0-03 快照过期 | `snapshotFresh` 写死 true，且把捕获 ref 原样传给 `apply()` ⇒ 旧快照和自己比 | provider 挂起期间经 `ctx.waterfall` 派发真实 `agent/pre-step` ⇒ 标 stale 并给 `stale-snapshot` |
+| P0-04 关键参数裁剪 | 可丢段丢光后改去"缩短受保护字符串叶子"且仍报 `ok:true`（6028B 命令被剪成 117B，尾部操作消失） | 受保护内容放不下即 `INSUFFICIENT_CONTEXT` 且不发请求；有空间时命令逐字节不变 |
+| P0-05 开关/用途/上限 | `toolAssessment && … && !toolAssessment` 永假；`allowedPurposes` 只在配置阶段查非空；`maxQuestions` 与 `assertSupported` 无人调用；未实现功能接受配置后静默无效 | 关闭时 provider=0；禁止用途时 provider=0 且请求未组装；超题数发送前拒；未实现项装载即拒 |
+| P0-06 校准绑定 | `calibrationAvailable = config.calibration !== undefined`，别的模型/模板/用途拟合的阈值能把未校准概率升级成 deny | 身份/模板/用途/calibrationId/calibratedPYes 逐项比对；不匹配只能 ask，匹配才允许 deny |
+| P0-07 审计与内存 | 写失败只置标志位（当次仍放行）；`records` 无上限；`execution` 永远 null；公共日志直写原始 `callDigest` | 首次写失败当次 body=0；retention=1 时内存不超 1 条；新增 `execution` 行按 requestId 关联；无密钥时摘要置空、有密钥时以 `hmac:` 出现 |
+
+同一类根因反复出现，值得单独记：**"配置里声明了"和"运行时执行了"是两件事**。本轮 7 项里有 4 项（用途白名单、题数上限、能力预检、校准适用性）属于此类，和上一轮 `expectedModel`、更早的 `perTurnCalls` 完全同形。
+
+诊断脚本的断言方向要写清楚：`.work/audit-20260927/*.mjs` 断言的是"缺陷存在"，退出码 0 **不是**验收通过。本轮已把其中两条（重复失败、会话隔离）转成仓库里的正式回归测试；其余仍需逐条转。
+
+D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过（此前缺的 6 个已复原），bundle 自测在本机真跑过 53 条 = 51 通过 + 2 因平台不能建符号链接而跳过；`artifacts/handoff_gaps.json` 改为 history 结构，保留 09-22 的历史结论不覆盖。原件模板与本项目 schema 不兼容（12 处 UNKNOWN_FIELD），只作参考，实现侧示例在 `config/examples/` 且有测试。
 
 ## 过程中发现并修掉的真实缺陷
 
