@@ -22,13 +22,16 @@ pnpm install
 pnpm -r build && pnpm -r typecheck     # 类型合同
 pnpm --filter jey-core test            # 158 条单元
 pnpm --filter jey-core test:property   # 16 条属性
-pnpm --filter jey-adapter-dsh test     # 46 条：真实 agent loop 上的宿主闭环、审批通道、装载入口、外发与审计
+pnpm --filter jey-adapter-dsh test     # 54 条：真实 agent loop 上的宿主闭环、审批通道、装载入口、doctor、外发与审计
 pnpm --filter jey-provider-typesafe test  # 20 条：云端线格式契约，夹具来自官方文档，全程不联网
 pnpm --filter jey-provider-local test     # 14 条：本地评分服务客户端契约（只认字面 loopback 等）
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .
                                          # 58 条：本地服务协议面与真实推理（推理需显式授权，默认 skip）
 node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home ../.work/dsh-host
                                          # 真 launcher 装载核实：临时 DSH_HOME + npm 安装 + --patch 构建产物，不碰 ~/.dsh
+node packages/adapter-dsh/src/doctor-cli.ts --config config/examples/off-minimal.json
+                                         # 只读 status/doctor：配置、宿主观测、提供方探测、审计计数
+                                         # 本机 ~/.dsh 装的是 rc.2，这条会以退出码 1 报 MISMATCH/NOT_READY——那正是它的作用
 ```
 
 ## 三条不可妥协的约束

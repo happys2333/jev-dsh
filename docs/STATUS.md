@@ -113,7 +113,7 @@ v1 明确**不重试**：重试只能有一层负责，协调器与提供方同�
 
 ## 2026-09-27 独立核查轮（D0 + P0）
 
-外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、11 PARTIAL、25 NOT_RUN、1 BLOCKED）。
+外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、12 PARTIAL、24 NOT_RUN、1 BLOCKED）。
 
 | 项 | 修了什么 | 钉住它的测试 |
 |---|---|---|
@@ -171,6 +171,28 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 `ctx.on('session/event')`），不是从 `tools/result` 的错误文本猜的——那两种情况在结果层面长得一样。
 把这条验证做完顺带暴露了两处"声明了但没执行"（缺陷 29、30），都已修：状态集合里
 `denied-by-host` / `cancelled` / `not-dispatched` 此前没有任何代码能产出。
+
+## 2026-09-27 只读 doctor（规格 §11）
+
+`pnpm --filter jey-adapter-dsh run doctor -- --config … [--journal …] [--dsh-home …] [--json]`，
+也可从仓库根 `node packages/adapter-dsh/src/doctor-cli.ts …`。报告的是**观测到的**配置、宿主、
+提供方与审计计数，不写、不启动、不下载、不发任务状态。它存在的理由就是上一节那条发现：
+launcher 在装载被拒后继续 serve，所以"配置没问题"和"Jey 在跑"必须是两句话。
+
+本机两次真实运行：
+
+| 对象 | 结果 |
+|---|---|
+| `~/.dsh`（装的 `0.1.5-rc.2`）+ `config/examples/local-enforce.json` | `NOT_READY`；`launcher MISMATCH pinned 0.1.7-alpha.1 / installed 0.1.5-rc.2`；`approval true`（读的是 dsh-base 的 patch，不是猜的）；`credential env:JEY_LOCAL_TOKEN = NOT_CONFIGURED`；探测被提供方自己拦下（无令牌不发未认证请求）；`journal-absent` |
+| 固定版临时 home + 那次真启动留下的 journal | `READY`；`launcher MATCH`；`mount row mounted:mode=off provider=unconfigured egress=deny`；`inference NOT_CONFIGURED` |
+
+8 条单测钉住的行为：配置被拒时 `REFUSED` 并带原始 code；读不到版本只能 `UNKNOWN`，不许写成兼容；
+审计里没有 mount 行时即使配置合法也 `NOT_READY`；mock 永远标 `SYNTHETIC` 且不做探测；云端探测
+固定 `NOT_RUN` 且断言 fetch 调用数为 0；凭据只显示已配置/未配置，断言"值不出现在
+`JSON.stringify(report)` 里"。
+
+PACK-02（版本不匹配要明确报告、不宣称兼容）因此从 NOT_RUN 变成 **PARTIAL**：命令与证据都有了，
+缺的是"从安装好的 tarball 里跑它"——那要先有可安装的包（P1-04）。
 
 ## 过程中发现并修掉的真实缺陷
 

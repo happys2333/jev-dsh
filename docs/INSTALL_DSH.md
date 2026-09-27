@@ -184,11 +184,49 @@ dsh --profile web --dump-config | grep -n "id: approval"
 - 会话策略 `never`（无人值守姿态）由服务在任何应答者之前把每次请求判为 `rejected`。
   Jey 既不读也不改这个策略——它只负责把问题交出去，并如实记录回来的结论。
 
+## status / doctor：装载状态的可核对入口
+
+上一节说 launcher 在配置被拒时只 warning 后继续 serve，所以需要一条**只读**命令来回答"这个部署里的 Jey 到底在不在、以什么模式在"。它读三样东西，不写任何东西、不启动任何东西、不发任务状态：
+
+```sh
+# 相对路径按当前工作目录解析；从仓库根这样跑最省心
+node packages/adapter-dsh/src/doctor-cli.ts \
+  --config config/examples/off-minimal.json \
+  --journal ../.work/dsh-017/home/off-audit.jsonl \
+  --dsh-home ../.work/dsh-017/home
+# 等价：pnpm --filter jey-adapter-dsh run doctor -- --config …（此时 cwd 是包目录）
+```
+
+真实一次运行的输出（本机 `~/.dsh` 装的是 rc.2，配置指向未运行的本地评分服务）：
+
+```
+verdict      NOT_READY
+launcher     MISMATCH pinned 0.1.7-alpha.1 / installed 0.1.5-rc.2
+approval     true — ask 会送进宿主的审批接缝，结论从 approval/asked + approval/decided 事件对读回
+inference    UNAVAILABLE — 探测失败
+credential   env:JEY_LOCAL_TOKEN = NOT_CONFIGURED
+journal      absent mounted=false decisions=0 isolated=0
+why          launcher-mismatch:0.1.5-rc.2!=0.1.7-alpha.1
+why          provider-unreachable:no local service token resolved for /v1/capabilities; refusing an unauthenticated request
+why          journal-absent:没有可读的审计文件，装载状态无从判断
+```
+
+三条它刻意做到的事：
+
+- **版本不匹配不写成兼容**（也相反：读不到就报 `UNKNOWN`，不替安装位置背书）。固定合同是
+  `0.1.7-alpha.1`，本机装的是 `0.1.5-rc.2`，两者在"装载失败要不要中止"上行为不同，
+  所以 doctor 直接把 `MISMATCH` 判成 `NOT_READY`。
+- **凭据只显示 `已配置/未配置`**，值和环境都不进报告；这条有测试盯着（把值塞进
+  `JSON.stringify(report)` 里就会出现的那条断言会红）。云端提供方的能力探测一律
+  `NOT_RUN`：doctor 不发需要授权和花钱的请求。
+- **装载状态取自审计本身**。没有 mount 行就写 `journal-unmounted`，即使配置文件完全合法。
+  看门狗可以只看这一条：`grep -c '"reason":"mounted:' "$JEY_AUDIT_PATH"`。
+
 ## 还没实现 / 没验证
 
 | 项 | 状态 |
 |---|---|
-| `status` / `doctor` 只读命令 | **NOT_IMPLEMENTED**（规格 §11 要求，属后续） |
+| `status` / `doctor` 只读命令 | **已实现**（见上一节）。它报告配置、宿主观测、提供方探测与审计计数；不做的是"活进程健康检查"——Jey 是库，没有控制端口 |
 | 已发布的 npm 插件包 | **不存在**，`jey-*` 尚未发布，也没有确认过名称可用性 |
 | Windows 原生 / WSL2 / Linux / macOS 分别验证 | 只在 **Windows 原生 + Node 24.15** 实测过。`python/.venv` 与 llama.cpp 的 CPU 路线同理，Linux/macOS 路径未跑 |
 | 本地提供方 | 服务、真实权重、真实 TS 客户端**已跑通**（见 `docs/STATUS.md` M3）；`pip install python/` 这条路没走过，实测方式是仓库内 `.venv` + `-m local_decider.service` |

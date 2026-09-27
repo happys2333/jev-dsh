@@ -105,7 +105,11 @@
 
 ## mcp-contract（5）／ pack-install（5）／ semantic-eval（4）／ system-eval（4）
 
-**全部 NOT_RUN。** `adapter-mcp` 尚未创建（P1-02），没有可安装的 tgz/wheel 与全新 home 验证（P1-04），冻结数据集/标签/校准分区/统计判定一行都没跑过（P2-01）。云端真实请求 `BLOCKED`（无凭据、无预算）。
+**除 PACK-02 外全部 NOT_RUN。** `adapter-mcp` 尚未创建（P1-02），没有可安装的 tgz/wheel 与全新 home 验证（P1-04），冻结数据集/标签/校准分区/统计判定一行都没跑过（P2-01）。云端真实请求 `BLOCKED`（无凭据、无预算）。
+
+| 案例 | 状态 | 证据 / 差在哪 |
+|---|---|---|
+| PACK-02 版本不匹配 | **PARTIAL** | 只读 doctor 已实现并实测：`launcher MISMATCH pinned 0.1.7-alpha.1 / installed 0.1.5-rc.2` 判 `NOT_READY`，读不到时报 `UNKNOWN` 而不是"大概兼容"（`doctor.test.ts` 的两条 `unobserved launcher` 断言）。**还差**：从已安装的 tarball 里跑这条命令——目前没有可安装的包（P1-04） |
 
 ## 汇总
 
@@ -119,11 +123,12 @@
 | local-inference | 4 | 0 | 1 | 0 |
 | local-offline | 0 | 1 | 0 | 1 |
 | mcp-contract | 0 | 0 | 5 | 0 |
-| pack-install | 0 | 0 | 5 | 0 |
+| pack-install | 0 | 1 | 4 | 0 |
 | semantic-eval | 0 | 0 | 4 | 0 |
 | system-eval | 0 | 0 | 4 | 0 |
-| **合计 74** | **37** | **11** | **25** | **1** |
+| **合计 74** | **37** | **12** | **24** | **1** |
 
-37 条 PASS 全部能指到具名测试或一次真实运行；25 条 NOT_RUN 是**没做过**，不是"大概能过"。
+37 条 PASS 全部能指到具名测试或一次真实运行；24 条 NOT_RUN 是**没做过**，不是"大概能过"。
 本表的分组计数在 2026-09-27 由案例行重新逐条汇总过一遍（此前 `security` 行把一条 NOT_RUN 记成了
-PASS），以后改动案例状态时应重算，而不是手改汇总数字。
+PASS，且 PACK-02 整组被写成"全部 NOT_RUN"而它已有 doctor 的部分证据），以后改动案例状态时应重算，
+而不是手改汇总数字。
