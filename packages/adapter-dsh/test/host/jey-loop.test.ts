@@ -107,6 +107,18 @@ async function runTurn(ctx: Context, agent: Agent, text: string): Promise<void> 
   await settled
 }
 
+/**
+ * Admit a real `agent/pre-step` for the loop's agent while a decision is open — the same
+ * dispatch the loop itself performs, so a freshness check is being beaten by host activity
+ * rather than by a test inventing state.
+ */
+async function admitStep(loop: Loop, text: string): Promise<void> {
+  const message = createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
+  await loop.ctx.waterfall('agent/pre-step', {
+    agent: loop.agent, messages: [message], turn: 2, step: 5, signal: new AbortController().signal,
+  }, async () => ({ kind: 'enter' as const, messages: [message] }))
+}
+
 function decisions(runtime: JeyRuntime): readonly AuditEvent[] {
   return runtime.records.filter(r => r.kind === 'decision')
 }
@@ -207,15 +219,7 @@ describe('Jey closed loop on a real DSH agent', () => {
     loop.provider.hold(1)
     const turn = runTurn(loop.ctx, loop.agent, 'note this down')
     await loop.provider.holding
-
-    const admitted = createUserMessage({
-      content: [{ type: 'text', text: 'new instruction arrived mid-inference' }],
-      source: { kind: 'user' },
-    })
-    await loop.ctx.waterfall('agent/pre-step', {
-      agent: loop.agent, messages: [admitted], turn: 2, step: 5, signal: new AbortController().signal,
-    }, async () => ({ kind: 'enter' as const, messages: [admitted] }))
-
+    await admitStep(loop, 'new instruction arrived mid-inference')
     loop.provider.release()
     await turn
 
@@ -223,6 +227,45 @@ describe('Jey closed loop on a real DSH agent', () => {
     assert.equal(records.length, 1, JSON.stringify(records.map(r => r.reasonCodes)))
     assert.equal(records[0]?.stale, true, 'a decision computed against superseded state must be marked stale')
     assert.ok(records[0]?.reasonCodes.includes('stale-snapshot'), JSON.stringify(records[0]?.reasonCodes))
+    loop.runtime.close()
+  })
+
+  it('discards a stale decision in shadow without restricting the call', async () => {
+    // Discarding a judgment and acting on it are different things. Shadow means the host's
+    // own decision stands; the stale path used to escalate to a denial there because no
+    // approval channel existed, which made shadow restrict execution.
+    const loop = await mountLoop(jeyConfig({ mode: 'shadow', limits: { deadlineMs: 20000 } }))
+    loop.provider.hold(1)
+    const turn = runTurn(loop.ctx, loop.agent, 'note this down')
+    await loop.provider.holding
+    await admitStep(loop, 'instruction arrived while the provider was thinking')
+    loop.provider.release()
+    await turn
+
+    const [record] = decisions(loop.runtime)
+    assert.equal(record?.stale, true)
+    assert.equal(probeToolBodyCalls().length, 1, 'a discarded judgment must not stop the call')
+    assert.equal(record?.hostDecision, 'allow', 'the row still records what the host decided')
+    loop.runtime.close()
+  })
+
+  it('escalates the same stale decision once the mode is allowed to tighten', async () => {
+    const loop = await mountLoop(jeyConfig({
+      mode: 'enforce', provider: { kind: 'local', local: localProviderBlock() }, egress: localEgress(),
+      limits: { deadlineMs: 20000 },
+    }))
+    loop.provider.hold(1)
+    const turn = runTurn(loop.ctx, loop.agent, 'note this down')
+    await loop.provider.holding
+    await admitStep(loop, 'instruction arrived while the provider was thinking')
+    loop.provider.release()
+    await turn
+
+    const [record] = decisions(loop.runtime)
+    assert.equal(record?.stale, true)
+    assert.equal(record?.action, 'deny', 'no approval channel here, so the escalation is a denial')
+    assert.ok(record?.reasonCodes.includes('approval-channel-absent'), JSON.stringify(record?.reasonCodes))
+    assert.equal(probeToolBodyCalls().length, 0, 'enforce may act on a required check it cannot validate')
     loop.runtime.close()
   })
 

@@ -273,6 +273,15 @@ const newScope = (): ScopeState => ({
 let generationCounter = 0
 
 /**
+ * The session-and-agent id behind an opaque scope key, or null when the key does not carry
+ * one. `ScopeKey` is typed as `object`, so the agent handle's `id` is read, not assumed.
+ */
+export function scopeIdOf(scope: object | undefined): string | null {
+  const candidate = scope as { readonly id?: unknown } | undefined
+  return typeof candidate?.id === 'string' ? candidate.id : null
+}
+
+/**
  * The host facts this build was probed against, in one place so the runtime mount and
  * the read-only doctor cannot drift into disagreeing about what the host offers.
  * `approvalChannel` is the only part observable per-process; the other two come from
@@ -326,11 +335,23 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
    * agents live, whichever spoke last became the other one's goal.
    */
   const scopes = new Map<string, ScopeState>()
-  // Deliberately global: any advertised-tool change anywhere raises the digest, so an
-  // unrelated agent's catalog change can only ever invalidate a pending decision, never
-  // wrongly confirm one. Per-scope digests need a host identity we cannot see at assemble
-  // time; that is recorded as a known gap rather than papered over.
-  let catalogDigest = `sha256:${sha256('[]')}`
+  /**
+   * The advertised tool set, per scope. `system-prompt/assemble` is dispatched with the
+   * requesting scope as its key, and the registry resolves a call's definition from the
+   * same scope (`ToolRuntime.view`), so the digest a decision is checked against has to be
+   * the one that scope was shown — otherwise a scoped tool shadowing a global one of the
+   * same name would be judged against a catalog the model never saw. `catalogGlobal` is the
+   * fallback for a scope we have never assembled for, which can only over-invalidate.
+   */
+  const catalogByScope = new Map<string, string>()
+  let catalogGlobal = `sha256:${sha256('[]')}`
+  const CATALOG_CAP = 64
+
+  function catalogFor(scopeKey: string): string {
+    return catalogByScope.get(scopeKey) ?? catalogGlobal
+  }
+
+  /** The history kept per scope is small and bounded, so a long session cannot grow it. */
   const HISTORY_CAP = 40
 
   const scopeFor = (key: string): ScopeState => {
@@ -380,7 +401,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       policyVersion,
       taskVersion: scope.task.version,
       task: { ...scope.task },
-      catalog: [{ name: args.toolName, schemaDigest: catalogDigest }],
+      catalog: [{ name: args.toolName, schemaDigest: catalogFor(args.scopeKey) }],
       call: {
         toolName: args.toolName,
         frozenArguments: args.arguments,
@@ -560,9 +581,14 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     return null
   }
 
-  const onAssemble: Events['system-prompt/assemble'] = async (assembly, _context, next) => {
+  const onAssemble: Events['system-prompt/assemble'] = async (assembly, context, next) => {
     const result = await next()
-    catalogDigest = `sha256:${sha256(JSON.stringify(result.tools))}`
+    const digest = `sha256:${sha256(JSON.stringify(result.tools))}`
+    catalogGlobal = digest
+    // `ScopeKey` is declared as an opaque `object`; the agent-loop uses the Agent handle as
+    // the key, so the id is read here rather than assumed. No id, no per-scope entry.
+    const key = scopeIdOf(context.scope)
+    if (key !== null) remember(catalogByScope, key, digest, CATALOG_CAP)
     return result
   }
 
@@ -607,7 +633,15 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     if (config.features.toolAssessment !== true) return toPreTool(host)
 
     const scopeKey = scopeKeyOf(exec)
-    const approvalChannel = exec.agent !== undefined && ctx.get('approval') !== undefined
+    // Two halves make a channel Jey may use: the host must expose an approval service, and
+    // the operator must have switched approval requests on. The flag used to be a load-time
+    // gate only, so `approvalRequests: false` still produced prompts on a capable host.
+    // With it off the escalation degrades to a denial, and the reason says
+    // `approval-channel-absent` because from the policy's side that is exactly what is true —
+    // the flag is checked in `config`, not added as a second code.
+    const approvalChannel = exec.agent !== undefined
+      && config.features.approvalRequests
+      && ctx.get('approval') !== undefined
     const { ref, request, fields, truncated, neededBytes } = snapshot({
       scopeKey,
       toolName: exec.name,
@@ -773,9 +807,15 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     // decision happen with no await between them (spec 10.1).
     const resolution = outcome.application.apply(current, host, applied)
     if (resolution.kind === 'stale') {
-      const fallback: HostDecision = approvalChannel
-        ? { kind: 'ask', reason: 'jey: snapshot stale' }
-        : { kind: 'deny', reason: 'jey: snapshot stale' }
+      // A judgment computed against superseded state is discarded — and discarding it must
+      // not become a restriction. `shadow` means the host's own decision stands untouched,
+      // so only the modes that may tighten escalate here; the row still records the stale
+      // verdict and the reason, which is what staleness is evidence for.
+      const fallback: HostDecision = config.mode === 'shadow'
+        ? host
+        : approvalChannel
+          ? { kind: 'ask', reason: 'jey: snapshot stale' }
+          : { kind: 'deny', reason: 'jey: snapshot stale' }
       return toPreTool(conclude({
         request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes, ...calibrationNotes],
         action: policy.action, hostDecision: host, observation, stale: true,
@@ -813,9 +853,9 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
    * for days must not grow a side table per call, and a dropped entry only costs one
    * execution row's detail — never a decision.
    */
-  function remember<K, V>(store: Map<K, V>, key: K, value: V): void {
+  function remember<K, V>(store: Map<K, V>, key: K, value: V, cap = DISPATCH_CAP): void {
     store.set(key, value)
-    while (store.size > DISPATCH_CAP) {
+    while (store.size > cap) {
       const oldest = store.keys().next()
       if (oldest.done === true) break
       store.delete(oldest.value)
@@ -858,16 +898,22 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
    * Register the call so its settled result can be published as its own row — including
    * calls that were refused, because "there is no row" is otherwise the only place a
    * reader can see that nothing ran, and it is indistinguishable from a dropped entry.
+   *
+   * Keyed by the *exact* call, not the root: one model-requested call can own several
+   * dispatches (a composite transport runs nested children under the same root), and each
+   * of them produces its own result. Keying the map by `rootCallId` would let the first
+   * child consume the parent's entry and leave the parent and the other child unreported.
+   * Attempt counting is the opposite case and still uses the root — see `observeCall`.
    */
   function trackDispatch(
-    exec: Executable & { readonly rootCallId?: string | null },
+    exec: Executable & { readonly callId?: string | null },
     request: DecisionRequest,
     decision: HostDecision,
     action: DecisionAction | null,
     reasonCodes: readonly string[],
   ): void {
-    if (exec.rootCallId === undefined || exec.rootCallId === null) return
-    remember(dispatched, exec.rootCallId, {
+    if (typeof exec.callId !== 'string') return
+    remember(dispatched, exec.callId, {
       requestId: request.requestId,
       sessionId: scopeKeyOf(exec),
       agentId: scopeKeyOf(exec),
@@ -892,7 +938,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     scope.sequence += 1
     scope.recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })
     if (scope.recentResults.length > HISTORY_CAP) scope.recentResults.shift()
-    const callId = exec.rootCallId ?? null
+    const callId = exec.callId ?? null
     const pending = callId === null ? undefined : dispatched.get(callId)
     if (callId !== null && pending !== undefined) {
       dispatched.delete(callId)

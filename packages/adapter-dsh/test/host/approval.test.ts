@@ -26,12 +26,13 @@ import { probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../sr
 import { PROBE_LLM_ROUTE, scriptedLlmPlugin } from '../../src/scripted-llm.ts'
 
 /** A terminal answerer: it answers for every request instead of delegating. */
-function answererPlugin(outcome: ApprovalOutcome) {
+function answererPlugin(outcome: ApprovalOutcome, onAsk?: () => void) {
   return {
     name: 'jey-answerer',
     apply(ctx: Context) {
       ctx.on('approval/request', (_req, next) => {
         void next
+        onAsk?.()
         return Promise.resolve(outcome)
       })
     },
@@ -46,7 +47,7 @@ interface Loop {
 }
 
 async function mountLoop(
-  options: { answer?: ApprovalOutcome, session?: string } = {},
+  options: { answer?: ApprovalOutcome, session?: string, asks?: () => void, approvalRequests?: boolean } = {},
 ): Promise<Loop> {
   resetProbeToolBodyCalls()
   const lines: string[] = []
@@ -56,8 +57,12 @@ async function mountLoop(
   await ctx.plugin(scriptedLlmPlugin)
   ctx.tools.register(probeTool)
   await ctx.plugin(ApprovalService)
-  if (options.answer !== undefined) await ctx.plugin(answererPlugin(options.answer))
-  const runtime = mountJey(ctx, config(), { provider: new MockProvider({
+  if (options.answer !== undefined) await ctx.plugin(answererPlugin(options.answer, options.asks))
+  const raw = config()
+  if (options.approvalRequests === false) {
+    (raw.features as Record<string, boolean>).approvalRequests = false
+  }
+  const runtime = mountJey(ctx, raw, { provider: new MockProvider({
     'conflicts-with-constraint': 0.99, 'advances-goal': 0.9, 'evidence-sufficient': 0.9,
   }), audit })
   const harness = await mountAgentLoopTestHarness(ctx)
@@ -86,7 +91,9 @@ function config(): Record<string, unknown> {
     },
     egress: { mode: 'local-only', allowedPurposes: ['tool-assessment'], allowedOrigins: ['http://127.0.0.1:9'] },
     limits: {},
-    features: { toolAssessment: true },
+    // Both switches are required: `approvalRequests` is what lets Jey initiate a prompt at
+    // all, and the host has to expose the channel. Turning either off degrades to a denial.
+    features: { toolAssessment: true, approvalRequests: true },
     audit: {},
     calibration: {
       id: 'fitted-for-something-else',
@@ -170,11 +177,23 @@ describe('Jey hands its ask decision to the real approval service', () => {
     await loop.ctx.fiber.dispose()
   })
 
-  it('records the same question as a denial when no channel can surface it', async () => {
-    // With no approval service there is nobody to surface the question to, and the host
-    // would have denied a bare `ask` anyway. The restriction is the same one; what changes
-    // is that the row now names the absent channel instead of leaving it inferred.
-    const loop = await mountLoopNoService()
+  it('refuses to load a deployment that wants approvals on a host without a channel', async () => {
+    // HOST-14's unsupported-combination half: declaring the feature without the host seam is
+    // a configuration error, not something to discover when the first prompt is due.
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await assert.rejects(
+      async () => { mountJey(ctx, config(), { provider: new MockProvider(), audit: { writeLine: () => { } } }) },
+      (e: unknown) => e instanceof Error && /APPROVAL_WITHOUT_HOST_CHANNEL/.test(e.message),
+    )
+    await ctx.fiber.dispose()
+  })
+
+  it('degrades the question to a recorded denial when no channel can surface it', async () => {
+    // With the feature off there is nobody to ask, and the restriction is the same one the
+    // host would have applied. What changes is the record: it names the absent channel
+    // instead of leaving the reader to infer it from a service that is not there.
+    const loop = await mountLoopNoService(false)
     await runTurn(loop.ctx, loop.agent, 'note this down')
 
     const { decision, execution } = pair(loop.lines)
@@ -190,10 +209,39 @@ describe('Jey hands its ask decision to the real approval service', () => {
     assert.equal(execution.failureCode, 'approval-channel-absent')
     await loop.ctx.fiber.dispose()
   })
+
+  it('opens exactly one approval question per decision', async () => {
+    // Jey hands the ask to the host rather than running a prompt of its own, so a second
+    // question for the same call would mean two channels deciding the same thing.
+    let asks = 0
+    const loop = await mountLoop({ answer: 'allowed-once', asks: () => { asks += 1 } })
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    assert.equal(asks, 1, `approval questions: ${asks}`)
+    assert.equal(probeToolBodyCalls().length, 1)
+    await loop.ctx.fiber.dispose()
+  })
+
+  it('does not prompt when approval requests are switched off, even on a capable host', async () => {
+    // `features.approvalRequests` used to be checked only at load, so a deployment that left
+    // it off still interrupted the operator whenever the host had an approval service.
+    let asks = 0
+    const loop = await mountLoop({ answer: 'allowed-once', asks: () => { asks += 1 }, approvalRequests: false })
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    assert.equal(asks, 0, 'the switch has to mean no prompt, not only a valid config')
+    assert.equal(probeToolBodyCalls().length, 0, 'the escalation degrades to a denial instead')
+    const { decision, execution } = pair(loop.lines)
+    assert.equal(decision.action, 'deny')
+    assert.ok(decision.reasonCodes.includes('approval-channel-absent'), JSON.stringify(decision.reasonCodes))
+    assert.ok(execution)
+    assert.equal(execution.status, 'not-dispatched')
+    await loop.ctx.fiber.dispose()
+  })
 })
 
 /** The same mount without the approval service, to prove the channel is what changed. */
-async function mountLoopNoService(): Promise<Loop> {
+async function mountLoopNoService(approvalRequests = true): Promise<Loop> {
   resetProbeToolBodyCalls()
   const lines: string[] = []
   const audit: LineSink = { writeLine: line => { lines.push(line) } }
@@ -201,7 +249,9 @@ async function mountLoopNoService(): Promise<Loop> {
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(scriptedLlmPlugin)
   ctx.tools.register(probeTool)
-  const runtime = mountJey(ctx, config(), { provider: new MockProvider({
+  const raw = config()
+  if (!approvalRequests) (raw.features as Record<string, boolean>).approvalRequests = false
+  const runtime = mountJey(ctx, raw, { provider: new MockProvider({
     'conflicts-with-constraint': 0.99, 'advances-goal': 0.9, 'evidence-sufficient': 0.9,
   }), audit })
   const harness = await mountAgentLoopTestHarness(ctx)
