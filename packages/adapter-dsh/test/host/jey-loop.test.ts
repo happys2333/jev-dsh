@@ -31,7 +31,10 @@ function jeyConfig(overrides: Record<string, unknown> = {}): Record<string, unkn
     provider: { kind: 'mock' },
     egress: { mode: 'deny' },
     limits: {},
-    features: {},
+    // Explicit: the schema default is false, and every test in this file is about the
+    // assessment path actually running. They used to pass without it only because the
+    // feature check could never be true.
+    features: { toolAssessment: true },
     audit: {},
     ...overrides,
   }
@@ -166,6 +169,65 @@ describe('Jey closed loop on a real DSH agent', () => {
     assert.equal(records[0]?.stale, true, 'a decision computed against superseded state must be marked stale')
     assert.ok(records[0]?.reasonCodes.includes('stale-snapshot'), JSON.stringify(records[0]?.reasonCodes))
     loop.runtime.close()
+  })
+
+  it('does nothing at all when the assessment feature is switched off', async () => {
+    // This switch was wired to a condition that could never be true
+    // (`toolAssessment && ... && !toolAssessment`), so every tool call still paid for a
+    // model request while the operator believed the feature was off.
+    const loop = await mountLoop(jeyConfig({ features: { toolAssessment: false } }))
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+    assert.equal(loop.provider.calls, 0, 'a disabled feature must not reach the provider')
+    assert.deepEqual(decisions(loop.runtime), [], 'and must not record an observation it never made')
+    assert.equal(probeToolBodyCalls().length, 1, 'the host keeps its own decision')
+    loop.runtime.close()
+  })
+
+  it('refuses a purpose the egress allowlist does not name, before any bytes leave', async () => {
+    const loop = await mountLoop(jeyConfig({
+      mode: 'enforce',
+      provider: {
+        kind: 'local',
+        local: {
+          endpoint: 'http://127.0.0.1:9', tokenRef: 'env:JEY_TEST_TOKEN', ownership: 'external',
+          expectedModel: { requested: 'any', revision: 'any' },
+        },
+      },
+      egress: {
+        mode: 'local-only', allowedOrigins: ['http://127.0.0.1:9'], allowedPurposes: ['tool-relevance'],
+      },
+    }))
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+    assert.equal(loop.provider.calls, 0, 'tool-assessment was never allowlisted for egress')
+    assert.equal(loop.provider.seen.length, 0, 'no request may be assembled for a purpose that cannot leave')
+    const records = decisions(loop.runtime)
+    assert.equal(records.length, 1, JSON.stringify(loop.runtime.records.map(r => [r.kind, r.reasonCodes])))
+    assert.ok(records[0]?.reasonCodes.some(r => r.startsWith('purpose-not-allowed')), JSON.stringify(records[0]?.reasonCodes))
+    loop.runtime.close()
+  })
+
+  it('refuses locally when there are more questions than the configured cap', async () => {
+    const loop = await mountLoop(jeyConfig({ limits: { maxQuestions: 2 } }))
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+    assert.equal(loop.provider.calls, 0, 'a request over the cap must not be sent to be rejected')
+    const [record] = decisions(loop.runtime)
+    assert.ok(record?.reasonCodes.some(r => r.startsWith('local-limit:maxQuestions')), JSON.stringify(record?.reasonCodes))
+    assert.equal(record?.questionStatuses.every(s => s.status === 'error'), true)
+    loop.runtime.close()
+  })
+
+  it('refuses to mount a feature that is not implemented instead of silently ignoring it', async () => {
+    for (const [label, override] of [
+      ['toolRelevance', { features: { toolAssessment: true, toolRelevance: true } }],
+      ['presentationFilter', { features: { toolAssessment: true, presentationFilter: true } }],
+    ] as const) {
+      await assert.rejects(async () => mountLoop(jeyConfig(override)), (error: unknown) => {
+        assert.ok(error instanceof ConfigError, `${label}: ${String(error)}`)
+        assert.ok(error.errors.some(e => e.code === 'FEATURE_NOT_IMPLEMENTED'),
+          `${label}: ${JSON.stringify(error.errors)}`)
+        return true
+      })
+    }
   })
 
   it('keeps two sessions from sharing a goal, a history or a task version', async () => {

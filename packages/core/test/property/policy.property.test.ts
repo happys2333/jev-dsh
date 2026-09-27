@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as fc from 'fast-check'
-import type { DecisionAction, HostDecision, Mode, ProviderKind, QuestionOutcome } from 'jey-contracts'
+import type { DecisionAction, HostDecision, Mode, ProviderKind, Purpose, QuestionOutcome } from 'jey-contracts'
 import { combineHostAndJey, evaluatePolicy, RESTRICTION_RANK, REQUIRED_QUESTION_IDS, checkEgress, type EgressConfig } from '../../src/index.ts'
 
 const arbProviderKind: fc.Arbitrary<ProviderKind> = fc.constantFrom('local', 'typesafe', 'mock')
@@ -89,15 +89,20 @@ test('property: with no usable observations, enforce never abstains', () => {
 })
 
 const arbEndpoint = fc.constantFrom('http://127.0.0.1:17861/v1/decide', 'https://api.typesafe.ai', 'http://localhost:9999/x')
+const arbPurposes = fc.constantFrom(
+  [] as readonly Purpose[], ['tool-assessment'] as readonly Purpose[],
+  ['tool-relevance'] as readonly Purpose[], ['tool-assessment', 'tool-relevance'] as readonly Purpose[],
+)
 const arbConfig: fc.Arbitrary<EgressConfig> = fc.record({
   mode: fc.constantFrom('deny' as const, 'local-only' as const, 'allowlist' as const),
   localOrigins: fc.constantFrom([], ['http://127.0.0.1:17861'], ['http://127.0.0.1:17861', 'http://127.0.0.2:1']),
+  allowedPurposes: arbPurposes,
   destinations: fc.constantFrom([], [{ id: 'jev-prod', endpoint: 'https://api.typesafe.ai', purposes: ['tool-assessment' as const], fields: ['task'] }]),
 })
 
 test('property: mode=deny is absolute for every provider and purpose', () => {
   fc.assert(fc.property(arbEndpoint, fc.string({ maxLength: 6 }), (endpoint, destinationId) => {
-    const v = checkEgress({ mode: 'deny', localOrigins: [] }, {
+    const v = checkEgress({ mode: 'deny', localOrigins: [], allowedPurposes: ['tool-assessment'] }, {
       providerKind: 'typesafe', destinationId, endpoint, purpose: 'tool-assessment',
       fields: ['task'], credentialConfigured: true, providerExplicitlySelected: true,
     })
@@ -113,6 +118,8 @@ test('property: anything allowed travelled through a configured origin or destin
     })
     if (!verdict.allowed) return true
     if (providerKind === 'mock') return false
+    // Purpose is a precondition of every allowed route, not an afterthought.
+    if (!config.allowedPurposes.includes('tool-assessment')) return false
     const origin = new URL(endpoint).origin
     return providerKind === 'local'
       ? config.localOrigins.includes(origin)
@@ -122,9 +129,11 @@ test('property: anything allowed travelled through a configured origin or destin
 
 test('property: an unconfigured allowlist allows nothing, whatever the mode', () => {
   const unconfigured: EgressConfig[] = [
-    { mode: 'deny', localOrigins: [] },
-    { mode: 'local-only', localOrigins: [] },
-    { mode: 'allowlist', localOrigins: [], destinations: [] },
+    { mode: 'deny', localOrigins: [], allowedPurposes: [] },
+    { mode: 'local-only', localOrigins: [], allowedPurposes: [] },
+    { mode: 'allowlist', localOrigins: [], allowedPurposes: [], destinations: [] },
+    // Origins and destinations present, but no purpose named: still nothing may leave.
+    { mode: 'local-only', localOrigins: ['http://127.0.0.1:17861'], allowedPurposes: [] },
   ]
   fc.assert(fc.property(arbEndpoint, arbProviderKind, (endpoint, providerKind) => unconfigured
     .every(config => !checkEgress(config, {

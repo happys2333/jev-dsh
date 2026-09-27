@@ -19,6 +19,12 @@ export interface EgressConfig {
   readonly mode: EgressMode
   /** Exact origins a local scoring service may be reached on; loopback is not implied. */
   readonly localOrigins: readonly string[]
+  /**
+   * The purposes this deployment permits to leave the process at all. Validated as
+   * non-empty by the config layer, and enforced per request here: a deployment that
+   * allowlisted only `tool-relevance` must not be able to send an assessment.
+   */
+  readonly allowedPurposes: readonly Purpose[]
   readonly destinations?: readonly Destination[]
 }
 
@@ -55,6 +61,13 @@ export function checkEgress(config: EgressConfig, attempt: EgressAttempt): Egres
 
   if (attempt.providerKind === 'mock') {
     return denied('mock-is-not-a-destination')
+  }
+
+  // Purpose is checked before origin or credentials: "may this kind of question leave at
+  // all" is the narrower question, and answering it later would let an unrelated
+  // misconfiguration look like the cause.
+  if (!config.allowedPurposes.includes(attempt.purpose)) {
+    return denied(`purpose-not-allowed:${attempt.purpose}`)
   }
 
   if (config.mode === 'local-only') {

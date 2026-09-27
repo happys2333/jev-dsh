@@ -46,7 +46,7 @@ async function bootHost(): Promise<{ ctx: Context; agent: Agent }> {
 
 const config = (overrides: Record<string, unknown> = {}) => ({
   schemaVersion: '1', mode: 'shadow', provider: { kind: 'mock' },
-  egress: { mode: 'deny' }, limits: {}, features: {}, audit: {}, ...overrides,
+  egress: { mode: 'deny' }, limits: {}, features: { toolAssessment: true }, audit: {}, ...overrides,
 })
 
 describe('jey plugin loaded through its real cordis entry point', () => {

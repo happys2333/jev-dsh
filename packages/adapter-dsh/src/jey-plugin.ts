@@ -3,11 +3,11 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'n
 import { dirname } from 'node:path'
 import type { Context, Events } from '@deepseek-ai/cordis'
 import type {
-  DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, QuestionOutcome, SnapshotRef,
+  DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
 } from 'jey-contracts'
 import {
-  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assessmentState, buildSnapshot, checkEgress,
-  compileAssessment, evaluatePolicy, fitToBudget, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
+  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assertSupported, assessmentState, buildSnapshot, checkEgress,
+  compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
   type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
 } from 'jey-core'
 import { MockProvider } from './providers/mock.ts'
@@ -432,6 +432,50 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   const errorOutcomes = (request: DecisionRequest, code: ErrorCode): readonly QuestionOutcome[] =>
     request.questions.map(q => ({ id: q.id, status: 'error' as const, code, retryable: false }))
 
+  let declaredCapabilities: ProviderCapabilities | null | undefined
+  let capabilitiesInFlight: Promise<{ readonly ok: true; readonly value: ProviderCapabilities }
+    | { readonly ok: false; readonly code: ErrorCode }> | null = null
+
+  /**
+   * Why this request must not be sent, or null when it may. The provider's own error code
+   * survives the capability probe: flattening `LOCAL_NOT_READY`, `AUTH` or
+   * `EGRESS_DENIED` into one generic refusal would lose exactly the distinction an
+   * operator needs. A failed probe is not cached — a service that comes back is re-asked.
+   */
+  async function capabilityRefusal(
+    request: DecisionRequest,
+  ): Promise<{ readonly code: ErrorCode; readonly reason: string } | null> {
+    if (request.questions.length > config.limits.maxQuestions) {
+      return {
+        code: 'UNSUPPORTED_CAPABILITY',
+        reason: `local-limit:maxQuestions=${config.limits.maxQuestions}`,
+      }
+    }
+    if (declaredCapabilities === undefined) {
+      capabilitiesInFlight ??= deps.provider.capabilities().then(
+        value => ({ ok: true as const, value }),
+        (error: unknown) => ({
+          ok: false as const,
+          code: error instanceof Error && 'code' in error && isErrorCode((error as { code: unknown }).code)
+            ? (error as { code: ErrorCode }).code
+            : 'INVALID_RESPONSE' as const,
+        }),
+      )
+      const probed = await capabilitiesInFlight
+      capabilitiesInFlight = null
+      if (!probed.ok) return { code: probed.code, reason: `provider:${probed.code}` }
+      declaredCapabilities = probed.value
+    }
+    const declared = declaredCapabilities
+    if (declared === null) return { code: 'INVALID_RESPONSE', reason: 'provider:INVALID_RESPONSE' }
+    try {
+      assertSupported(request.questions, declared, Buffer.byteLength(JSON.stringify(request.state), 'utf8'))
+    } catch (error) {
+      return { code: 'UNSUPPORTED_CAPABILITY', reason: `capability:${error instanceof Error ? error.message : 'rejected'}` }
+    }
+    return null
+  }
+
   const onAssemble: Events['system-prompt/assemble'] = async (assembly, _context, next) => {
     const result = await next()
     catalogDigest = `sha256:${sha256(JSON.stringify(result.tools))}`
@@ -473,6 +517,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   const onPreExecute: Events['tools/pre-execute'] = async (exec, next) => {
     const host = fromPreTool(await next())
     if (config.mode === 'off' || exec.signal.aborted) return toPreTool(host)
+    // A feature that is switched off does nothing at all: no provider call, no
+    // observation, no audit row. The previous guard for this was `A && !A`, which could
+    // never be true, so `toolAssessment: false` still spent a model call on every tool.
+    if (config.features.toolAssessment !== true) return toPreTool(host)
 
     const scopeKey = scopeKeyOf(exec)
     const approvalChannel = exec.agent !== undefined && ctx.get('approval') !== undefined
@@ -521,6 +569,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
         {
           mode: config.egress.mode,
           localOrigins: config.egress.allowedOrigins ?? [],
+          allowedPurposes: config.egress.allowedPurposes ?? [],
           destinations: config.egress.destinations ?? [],
         },
         {
@@ -539,6 +588,17 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
         mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, 'EGRESS_DENIED'),
       })
       record({ request, ref, truncatedPaths: truncated, reasonCodes: [...egress.reasons, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
+      return toPreTool(policy.combined)
+    }
+
+    // Find out what this provider can answer before spending a request on it. Both the
+    // local cap and the provider's declared ceiling were decoration until here.
+    const refusal = await capabilityRefusal(request)
+    if (refusal !== null) {
+      const policy = evaluatePolicy({
+        mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, refusal.code),
+      })
+      record({ request, ref, truncatedPaths: truncated, reasonCodes: [refusal.reason, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null })
       return toPreTool(policy.combined)
     }
 

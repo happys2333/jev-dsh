@@ -2,11 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { checkEgress, findCallerControlledTransport, type EgressAttempt, type EgressConfig } from '../../src/index.ts'
 
-const DENY: EgressConfig = { mode: 'deny', localOrigins: [] }
-const LOCAL_ONLY: EgressConfig = { mode: 'local-only', localOrigins: ['http://127.0.0.1:17861'] }
+const DENY: EgressConfig = { mode: 'deny', localOrigins: [], allowedPurposes: ['tool-assessment'] }
+const LOCAL_ONLY: EgressConfig = {
+  mode: 'local-only', localOrigins: ['http://127.0.0.1:17861'], allowedPurposes: ['tool-assessment'],
+}
 const ALLOWLIST: EgressConfig = {
   mode: 'allowlist',
   localOrigins: ['http://127.0.0.1:17861'],
+  allowedPurposes: ['tool-assessment'],
   destinations: [{
     id: 'jev-prod',
     endpoint: 'https://api.typesafe.ai',
@@ -60,7 +63,7 @@ test('local-only accepts only an exactly allowlisted origin', () => {
 })
 
 test('a loopback-looking URL is not trusted without configuration', () => {
-  const r = checkEgress({ mode: 'local-only', localOrigins: [] }, localAttempt)
+  const r = checkEgress({ mode: 'local-only', localOrigins: [], allowedPurposes: ['tool-assessment'] }, localAttempt)
   assert.equal(r.allowed, false)
 })
 
@@ -83,7 +86,21 @@ test('cloud requires provider selection, credential, allowlisted endpoint, purpo
 })
 
 test('an allowlist with no destinations denies cloud traffic', () => {
-  assert.equal(checkEgress({ mode: 'allowlist', localOrigins: [] }, cloudAttempt).allowed, false)
+  assert.equal(checkEgress({ mode: 'allowlist', localOrigins: [], allowedPurposes: ['tool-assessment'] }, cloudAttempt).allowed, false)
+})
+
+test('a purpose outside the allowlist is refused before origin or credentials', () => {
+  // The deployment said only `tool-relevance` may leave the process. Enforcing that only
+  // for cloud destinations let a local provider receive a full tool-assessment anyway.
+  const relevanceOnly: EgressConfig = {
+    mode: 'local-only', localOrigins: ['http://127.0.0.1:17861'], allowedPurposes: ['tool-relevance'],
+  }
+  const r = checkEgress(relevanceOnly, localAttempt)
+  assert.equal(r.allowed, false)
+  if (!r.allowed) assert.deepEqual(r.reasons, ['purpose-not-allowed:tool-assessment'])
+  const cloud = checkEgress({ ...ALLOWLIST, allowedPurposes: ['tool-relevance'] }, cloudAttempt)
+  assert.equal(cloud.allowed, false)
+  if (!cloud.allowed) assert.deepEqual(cloud.reasons, ['purpose-not-allowed:tool-assessment'])
 })
 
 test('caller-controlled transport keys are found at any depth', () => {

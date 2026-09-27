@@ -214,6 +214,20 @@ function contradictions(config: JeyConfig, host: HostCapabilities): ConfigIssue[
   if (config.features.presentationFilter && !host.scopedRestrict) {
     push('FILTER_WITHOUT_HOST_RESTRICT', '/features/presentationFilter', 'host restriction is unavailable in this scope')
   }
+  // A switch that silently does nothing is worse than one that refuses to load: the
+  // operator believes a capability is on. These two, and managed service ownership, are
+  // specified but not implemented in this version, so they are rejected by name.
+  if (config.features.toolRelevance) {
+    push('FEATURE_NOT_IMPLEMENTED', '/features/toolRelevance', 'tool relevance ranking is not implemented; leave it false')
+  }
+  if (config.features.presentationFilter) {
+    push('FEATURE_NOT_IMPLEMENTED', '/features/presentationFilter',
+      'the presentation filter is not implemented and its host timing gate (§8.2) is unverified')
+  }
+  if (config.provider.kind === 'local' && config.provider.local?.ownership === 'managed') {
+    push('OWNERSHIP_NOT_IMPLEMENTED', '/provider/local/ownership',
+      'Jey never launches, restarts or downloads a service; run it yourself and use ownership=external')
+  }
   if (config.calibration !== undefined) {
     const missing = config.calibration.appliesTo === undefined
     if (missing || config.calibration.id === undefined) {
