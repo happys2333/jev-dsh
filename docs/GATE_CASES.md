@@ -105,10 +105,17 @@
 
 ## mcp-contract（5）／ pack-install（5）／ semantic-eval（4）／ system-eval（4）
 
-**除 PACK-02 外全部 NOT_RUN。** `adapter-mcp` 尚未创建（P1-02），没有可安装的 tgz/wheel 与全新 home 验证（P1-04），冻结数据集/标签/校准分区/统计判定一行都没跑过（P2-01）。云端真实请求 `BLOCKED`（无凭据、无预算）。
+**`mcp-contract` 5 条全部 PASS；pack-install 与两组评测仍全部未跑。** `packages/adapter-mcp` 已建（P1-02），下面的证据都是真实 stdio 子进程 + 官方 SDK 客户端 + 测试进程里的真实 HTTP 服务，没有假传输层。仍没做的：没有可安装的 tgz/wheel 与全新 home 验证（P1-04），冻结数据集/标签/校准分区/统计判定一行都没跑过（P2-01）。云端真实请求 `BLOCKED`（无凭据、无预算）。
+
+命令：`pnpm --filter jey-adapter-mcp test`（27 条：19 单元 + 8 契约）；证据再生：`node scripts/mcp_stdio_transcript.mjs` → `artifacts/mcp_stdio_session.json`
 
 | 案例 | 状态 | 证据 / 差在哪 |
 |---|---|---|
+| MCP-01 真实客户端握手 | **PASS** | `test/contract/mcp.test.ts` 三条覆盖 initialize/list/call：`MCP-01 …`（官方 SDK `Client` 连一个真实子进程，`tools/list` 发布的 input/output schema 与 `src/schema.ts` 逐字相同，annotations 是只读、非破坏、非开放世界）、`MCP-01b …`（三个工具各调一次；`structuredContent` 与兼容文本是**同一串字节**，并反过来用发布的 output schema 校验）、`MCP-01c …`（提供方换成测试进程里真实 HTTP 监听，答案里的 kind/resolvedModel 来自服务端身份，`synthetic:false`） |
+| MCP-02 stdout 纯净 | **PASS** | `MCP-02 puts only protocol bytes on stdout, and stops when its client disconnects`：自己 spawn、逐行扫 stdout，每一行都必须解析成 JSON-RPC 2.0 帧；启动行落在 stderr；一个真实本地 token 在 stdout 与 stderr 里都不出现。顺带断言客户端关掉 stdin 后进程 exit code 为 0。把 `log()` 改指 stdout 时这条会红（已验证） |
+| MCP-03 结构化错误 | **PASS** | `MCP-03 keeps a protocol failure apart from a judgement that could not be made`：未知工具 `-32601`、缺 `evidence` `-32602`（协议错误，没有 result），而超预算的合法请求是带 `isError` 的 result（`INSUFFICIENT_CONTEXT`、`retryable:false`、没有 `structuredContent`）。把协议错误也改写成 `isError` 时这条会红（已验证） |
+| MCP-04 权限隔离 | **PASS** | `MCP-04 refuses a forged host identity without sending anything`：一次调用里同时塞 `sessionId`/`hostAttested`/`endpoint`/`tokenRef`/`mode` → `-32602`，且**本地服务的收包计数仍为 0**（不是"发出去了但被忽略"）；随后不带伪造键的调用确实到达服务，快照里的 `sessionId`/`agentId` 是服务端自填的 `mcp`。工具面上没有 `jey_execute`/`jey_set_policy`，`adl_*` → `jey_*` 的映射由 `LEGACY_TOOL_NAMES` 与 `schema.test.ts` 记录 |
+| MCP-05 客户端断开 | **PASS** | 两半分开钉：`MCP-05 propagates a cancellation to the provider and keeps no orphan work` —— 服务把连接吊住，客户端取消后**服务自己看到 socket 被挂断**（配置的 deadline 是 30 s，所以看到的不是超时），接着第二次调用在 `maxConcurrent:1` 下仍然真的到达服务并拿到 `LOCAL_NOT_READY` 而不是被排队饿死；把 `signal` 换成永不中止的控制器这条就变红（已验证）。`MCP-05b shuts the process down when the client disappears with a call in flight` —— 在途时客户端消失，进程必须自己退掉；旧代码挂住不退，因为 SDK 的 stdio 传输不会自己发现客户端走了，修的是 `src/main.ts` 里监听 stdin `end` 的那一行（缺陷 35） |
 | PACK-02 版本不匹配 | **PARTIAL** | 只读 doctor 已实现并实测：`launcher MISMATCH pinned 0.1.7-alpha.1 / installed 0.1.5-rc.2` 判 `NOT_READY`，读不到时报 `UNKNOWN` 而不是"大概兼容"（`doctor.test.ts` 的两条 `unobserved launcher` 断言）。**还差**：从已安装的 tarball 里跑这条命令——目前没有可安装的包（P1-04） |
 
 ## 汇总
@@ -122,13 +129,14 @@
 | lifecycle | 9 | 1 | 0 | 0 |
 | local-inference | 4 | 0 | 1 | 0 |
 | local-offline | 0 | 1 | 0 | 1 |
-| mcp-contract | 0 | 0 | 5 | 0 |
+| mcp-contract | 5 | 0 | 0 | 0 |
 | pack-install | 0 | 1 | 4 | 0 |
 | semantic-eval | 0 | 0 | 4 | 0 |
 | system-eval | 0 | 0 | 4 | 0 |
-| **合计 74** | **43** | **11** | **19** | **1** |
+| **合计 74** | **48** | **11** | **14** | **1** |
 
-43 条 PASS 全部能指到具名测试或一次真实运行；19 条 NOT_RUN 是**没做过**，不是"大概能过"。
-本表的分组计数由案例行逐条重算（2026-09-27 两次：一次纠正 `security` 把 NOT_RUN 记成 PASS、
-`PACK-02` 整组被写成全 NOT_RUN；一次在 HOST-08/09/11/14、SEC-02、LIFE-07 转 PASS 之后）。
+48 条 PASS 全部能指到具名测试或一次真实运行；14 条 NOT_RUN 是**没做过**，不是"大概能过"。
+本表的分组计数由案例行逐条重算（2026-09-27 三次：一次纠正 `security` 把 NOT_RUN 记成 PASS、
+`PACK-02` 整组被写成全 NOT_RUN；一次在 HOST-08/09/11/14、SEC-02、LIFE-07 转 PASS 之后；
+一次在 `mcp-contract` 整组转 PASS 之后）。
 以后改动案例状态时应重算，而不是手改汇总数字。

@@ -228,6 +228,28 @@ Service 定义，锁文件里没有任何实现包，`run_code` 在这种树上�
 无法解释的失败。这就是"筛选只能落在 `system-prompt/assemble`"的实证理由，也是
 `presentationFilter` 继续拒绝装载的原因（缺实现，不缺认知）。
 
+## 2026-09-27 MCP 适配（mcp-contract 5 条转 PASS）
+
+`packages/adapter-mcp` 建起来了：`schema.ts`（发布即校验的单一来源）+ `tools.ts`（快照、预算、egress、
+协调器）+ `server.ts`（协议错误与工具错误分开）+ `main.ts`（stdio 入口）。文档 `docs/INSTALL_MCP.md`，
+证据脚本 `scripts/mcp_stdio_transcript.mjs` → `artifacts/mcp_stdio_session.json`。测试 27 条（19 单元 +
+8 契约），契约那 8 条全部 spawn 真实子进程、走真实 stdio、用官方 SDK `Client`，本地提供方是测试进程里
+的真实 HTTP 监听；没有假传输层。
+
+| 案例 | 关键断言 |
+|---|---|
+| MCP-01 | initialize/list/call 三段各一条：发布的 schema 与 `src/schema.ts` 逐字相同；三个工具各调一次；`structuredContent` 与兼容文本是同一串字节；再用真实 HTTP 服务答一次，身份字段来自服务端 |
+| MCP-02 | 逐行扫 stdout，每行必须是 JSON-RPC 2.0 帧；日志只去 stderr；真实 token 在两个流里都不出现；客户端关 stdin 后 exit code 0 |
+| MCP-03 | 未知工具 `-32601`、缺字段 `-32602`（无 result），超预算的合法请求是 `isError` result（无 `structuredContent`） |
+| MCP-04 | 一次调用塞五个伪造键 → `-32602` **且服务端收包数为 0**；正常调用到达服务，快照身份是服务端自填的 `mcp` |
+| MCP-05 | 取消：服务吊住 → 客户端取消 → **服务端自己看到 socket 挂断**（deadline 设成 30 s，所以看到的不是超时）→ 第二次调用在 `maxConcurrent:1` 下仍真的到达服务。断连：在途时客户端消失，进程必须自己退掉 |
+
+四处新断言都做了破坏验证（改坏→变红→改回）：日志改指 stdout、把协议错误改写成 `isError`、把 `additionalProperties:false` 打开、把传给协调器的 `signal` 换成永不中止的控制器。**第二轮里只有 MCP-05 一次没红**：它当时把"5 秒 deadline 到了"当成"取消生效"，把 deadline 拉到 30 s 才暴露出真正的判据（缺陷 36 修完之后它才具备区分能力）。
+
+顺带把 mock 提供方拆成 `packages/provider-mock` 给两条适配器共用，并给它补上第一份测试（此前那个包 0 条测试，缺陷 38）。
+
+**没做的部分照实写**：MCP 这条路没有审计 journal、没有 doctor、一个进程只有一个身份（`sessionId:'mcp'`，所以 `perSessionCalls` 是进程级的）、`typesafe` 提供方直接拒绝启动、Claude Code/OpenCode 的原生 hooks 属于后续任务。规范 §12 那句"schema 与核心契约同源生成"目前满足的是"发布的那份就是校验的那份"，类型→JSON Schema 的生成器还没有（缺陷 39）。
+
 ## 过程中发现并修掉的真实缺陷
 
 1. **shadow 不惰性**：概率分支（conflict/goal/evidence）没有检查 mode，`shadow` 下仍会产出 `ask`/`deny`。属性测试在 1000 次随机输入下命中；此前的单元测试因为固定了 `snapshotFresh: false` 而走进提前返回、把它掩盖了。修法是把 mode 处理从各分支上移到唯一出口，使不变量成为结构性事实。
@@ -275,6 +297,14 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 
 另记：一次用 shell 打补丁的操作有 3 处替换静默没生效却报告成功，靠 grep 复核才发现；此后同类改动一律用编辑器改并回读确认。本轮仍有一次编辑器改动把 `class Job:` 换成了错误的目标行（缺陷 23），说明"回读"这一步不能省——工具说成功只代表它做了某件事，不代表那件事是对的。本轮最严重的一次同样是编辑器造成的（缺陷 31），而且它一路穿过 typecheck 和当时的全部测试，直到把它做成一次有红有绿的实验才暴露。
 
+MCP 这一轮新增（35–39）。共同点还是老毛病：**声明了的东西没人执行**，以及**两种不同的失败被写成同一种**。
+
+35. **客户端走了，MCP 服务还活着**：`@modelcontextprotocol/sdk` 的 `StdioServerTransport` 只在有人调用它的 `close()` 时才摘监听器，**从不监听 stdin 的 `end`**。没有在途请求时进程会因为事件循环空了而"碰巧"退出；一旦有一条发往本地服务的请求挂着（socket + 超时计时器都在 ref 事件循环），客户端消失后进程就一直跑下去。修在 `src/main.ts`：`process.stdin.once('end')` 与 `server.onclose` 都走同一个 `shutdown()`，先 `coordinator.close()`（它会 abort 在途、关提供方）再退。`MCP-05b` 是这条的回归测试，它对旧代码会变红（实测：旧代码挂到 4 秒超时）。
+36. **协调器把答题方自己声明的 `retryable` 抹平了**：`CoordinatorOutcome.failed` 只带 `code`。于是 MCP 适配器要想知道"能不能重试"只能自己按 code 猜一张表——而本地协议里 429（`QUEUE_FULL`，可重试）和 504（`TIMEOUT`，服务已经放弃计算这条）落在**同一个 code 名下不同的服务端声明**，猜出来的表必然有一边是错的：客户端会被鼓励去砸一个刚说过"这条我超时了"的服务。修法是让声明活着穿过协调器（`failed` 带上 `retryable`，抛出路径读提供方错误对象上的字段），适配器原样转发，那张本地猜表被删掉。`test/unit/tools.test.ts` 用真实 HTTP 分别拿 429/503/422/504 钉住，core 侧三条 `coordinator.test.ts` 钉住"不许无中生有"（未命名的 `PROVIDER_ERROR` 一律 `retryable:false`）。
+37. **服务不可达被写成"这个模型不支持这类问题"**：`capabilities()` 的探测失败和 `assertSupported()` 的拒绝共用一个 `try`，任何一个抛错都返回 `UNSUPPORTED_CAPABILITY`、`retryable:false`。503 的部署看起来像"模型不行"，运维会去换模型而不是去起服务。拆成两段 catch，前一段保留 `LocalError` 的 code 与 retryable（`LOCAL_NOT_READY` 可重试），后一段才叫 `UNSUPPORTED_CAPABILITY`。
+38. **合成提供方可以自报本地身份**：`MockProvider` 的探针只钉住 `synthetic:true`，`identity.kind` 能被覆盖成 `local`。一份合成答案于是可以带着"我是本地模型"的身份出现在审计行和 MCP 返回里——正是 §3.2 要防的伪装。现在 `kind` 与 `synthetic` 一起钉住（`resolvedModel` 仍可编排，用来演练校准匹配）。同时这个包第一次有了自己的测试（`provider-mock/test/unit/mock.test.ts`，5 条），此前它是一个**零测试的共享包**，两条适配器的 gate 都站在上面。
+39. **`jey_rank` 的空候选被判成能力问题**：`candidates: []` 编译出 0 道题，`assertSupported` 用 `"no questions compiled"` 拒绝，客户端收到 `UNSUPPORTED_CAPABILITY`——可是没有任何提供方被问过。改成短路：返回 `noneApplicable:true`、`abstained:false`、`provider.resolvedModel:"not-called"`，并且明确 `abstained` 与 `noneApplicable` 不是同义词（一个是"问了、模型不答"，一个是"没东西可问"），两条分别有测试。
+
 这些都属于“看起来通过、实际不安全”一类，记录在此以便复核。
 
 ## 阻塞项
@@ -286,6 +316,8 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 | `ask` 授予通道 | **已解除（2026-09-27）** | 把 `@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 作为直接依赖装进宿主测试，授予/拒绝/无人应答三条路径各有一条具名测试；`unavailable` 走的是服务自己的 fail-closed 默认 |
 | `presentationFilter`（硬筛选的实现） | **NOT_IMPLEMENTED** | 时序 gate 本身已在 2026-09-27 实测清楚（restrict 落在 pre-step 晚了一步，见 §4）；缺的是把筛选写进 `system-prompt/assemble`，配置目前直接拒绝启用 |
 | 宿主级 egress 拒绝（真实提供方） | **NOT_RUN** | 现在具备条件：local 服务可以真跑，M5 补 |
+| MCP 侧的审计 journal | **NOT_IMPLEMENTED** | 规范 §12 没给 MCP 规定 journal，所以没写；后果是"有效性证据"只在 DSH 那条路上成立，已在 `docs/INSTALL_MCP.md` 的已知边界里写明 |
+| MCP schema 与 `jey-contracts` 的生成关系 | **PARTIAL** | §12 要求"与核心契约同源生成"。现在是手写的单一来源（发布的就是校验的，有测试），类型→JSON Schema 的生成器缺 |
+| 评测（M6）、最终报告（M8） | **NOT_STARTED** | — |
 | secret-scan / pack-install / CI | **NOT_RUN** | M5/M7 |
-| MCP 适配（M4）、评测（M6）、最终报告（M8） | **NOT_STARTED** | — |
 | 上传 | 授权范围：可 push 到 feature 分支，**不可** push `main`、不可 publish npm、不可向第三方仓库发 PR |
