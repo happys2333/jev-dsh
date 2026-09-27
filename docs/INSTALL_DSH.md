@@ -115,7 +115,7 @@ dsh plugin --profile <profile> add <包名>   # 官方 CLI，把参数转发给 
 Jey 默认把审计写到 stderr；设了 `JEY_AUDIT_PATH` 就改写成 JSON Lines 文件（路径只来自环境变量，绝不来自模型可见的配置，也不接受模型改 `audit.rawContent`）：
 
 ```sh
-JEY_AUDIT_PATH=/tmp/jey.jsonl dsh --profile <profile> web --no-open
+JEY_AUDIT_PATH=/tmp/jey.jsonl dsh --profile web --no-open
 ```
 
 然后在会话里让它调一次工具，再看：
@@ -124,9 +124,44 @@ JEY_AUDIT_PATH=/tmp/jey.jsonl dsh --profile <profile> web --no-open
 tail -n 3 /tmp/jey.jsonl
 ```
 
-每行是一次决策，固定字段。值得核对的三点：`action` 是 Jey 的判断、`hostDecision` 是宿主原本的决定、`execution` 是实际发生了什么——**没执行就是 `null`**，不会出现"模型答了"被写成"工具跑了"。`synthetic: true` 表示这次应答来自 mock，不是真实模型。
+第一行是装载行（`kind: diagnostic`，`reason` 以 `mounted:` 开头）——**没有它就等于 Jey 不在**，
+后面才是判定。每做一次判定写一行 `decision`，紧跟一行 `execution`。值得核对的三点：`action` 是 Jey 的判断、`hostDecision` 是宿主原本的决定、`execution` 是实际发生了什么——**没执行就是 `null`**，不会出现"模型答了"被写成"工具跑了"。`synthetic: true` 表示这次应答来自 mock，不是真实模型。
 
 `packages/adapter-dsh/test/host/plugin-entry.test.ts` 走的正是这条路径：真实的 `ctx.plugin(jeyPlugin, config)`、不注入 provider、不注入 sink、断言落盘的行能被恢复扫描器原样读回。
+
+## 装载证据与一个必须知道的例外（HOST-01，2026-09-27 实测）
+
+上面那条链已在**固定版真实 launcher** 上跑通：`scripts/host_boot_check.mjs` 建一个临时 `DSH_HOME`、
+`npm install @deepseek-ai/dsh@0.1.7-alpha.1`、用 `--patch` 叠加层装载 `packages/adapter-dsh/dist/`
+里的构建产物，然后检查三件事 —— `--dump-config` 是否组合出我们的条目、坏配置是否由**我们**拒绝、
+`off`/`shadow` 是否真能起来。全程不读写 `~/.dsh`，日志落盘前抹掉 `token=`。
+
+```sh
+pnpm -r build
+node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home ../.work/dsh-host
+```
+
+必须知道的例外：**配置被拒不代表宿主起不来。** `0.1.7-alpha.1` 的 `boot()` 只对它自己内置的
+`requiredStartupEntryIds` 判死，第三方插件抛错会被归为"未激活条目"，输出
+
+```
+dsh: warning: 1 entry did not activate
+jey (file:///…/jey-plugin.js): ConfigError: invalid Jey configuration: ENFORCE_WITH_MOCK@/provider/kind
+dsh web: http://127.0.0.1:<port>/?token=…
+```
+
+然后照常服务（退出码 0）。同一份配置在 `0.1.5-rc.2` 上会中止启动，所以这不是"一直如此"的行为，
+而是固定版上的行为。也就是说：**一个配了 enforce 但配置写错的部署，运行的是没有 Jey 的宿主**，
+而第三方插件没有办法把自己的激活变成必需。
+
+可操作的核对方式是看审计：装载成功一定会先写一行
+
+```json
+{"kind":"diagnostic","reason":"mounted:mode=enforce provider=local egress=local-only", …}
+```
+
+启动后该文件为空或不存在 = Jey 不在。这一行不能由宿主日志替代：启动期的日志 exporter 是
+`levels:{default:2}`（warn 及以上），插件的 info 行在那段时间根本不会被打印。
 
 ## 卸载
 
@@ -143,4 +178,5 @@ tail -n 3 /tmp/jey.jsonl
 | 断外网下的"严格离线" | **未验证**。只验证到代码路径不取网（`HF_HUB_OFFLINE=1` + `local_files_only` + 请求期不下载）；没做断网抓包级验证，所以不写"严格离线" |
 | `expectedModel` 逐字段比对 | 核心逻辑有单测（含"不匹配时提供方调用数为 0"），字段**取值**在端到端里对着 `models.lock.json` 核过；两者之间没有真机 mismatch 演练 |
 | `ask` 真正弹审批 | **BLOCKED**：需要组合 `@deepseek-ai/dsh-user-approval`，当前测试拓扑里没有它，实测到的是降级为拒绝 |
+| "Jey 装载失败就不许启动" | **宿主不提供**。`0.1.7-alpha.1` 对第三方条目只 warning 后继续 serve，`requiredStartupEntryIds` 是它自己内置的清单，没有对外开关。要这条保证只能靠外部核对（见上一节的 mount 行） |
 | `presentationFilter`（收窄模型可见工具） | **默认关闭**，且宿主合同 §8.2 的时序 gate 未通过前不应打开 |

@@ -113,7 +113,7 @@ v1 明确**不重试**：重试只能有一层负责，协调器与提供方同�
 
 ## 2026-09-27 独立核查轮（D0 + P0）
 
-外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 37 PASS、11 PARTIAL、24 NOT_RUN、2 BLOCKED）。
+外部核查报告 [`IMPLEMENTATION_REVIEW_20260927.md`](IMPLEMENTATION_REVIEW_20260927.md) 以 `b062941` 为基线，复现 9 项问题并指出"M0–M2 gate 已全部通过"说过头了。**9 项全部对着源码复核为真**，其中 7 项是 P0，已逐条修复；本轮起 README 不再写 gate 整体通过，逐条状态改由 [`GATE_CASES.md`](GATE_CASES.md) 承载（74 条验收案例 → 命令/具名测试/状态；当前 38 PASS、11 PARTIAL、23 NOT_RUN、2 BLOCKED）。
 
 | 项 | 修了什么 | 钉住它的测试 |
 |---|---|---|
@@ -130,6 +130,30 @@ v1 明确**不重试**：重试只能有一层负责，协调器与提供方同�
 诊断脚本的断言方向要写清楚：`.work/audit-20260927/*.mjs` 断言的是"缺陷存在"，退出码 0 **不是**验收通过。本轮已把其中两条（重复失败、会话隔离）转成仓库里的正式回归测试；其余仍需逐条转。
 
 D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过（此前缺的 6 个已复原），bundle 自测在本机真跑过 53 条 = 51 通过 + 2 因平台不能建符号链接而跳过；`artifacts/handoff_gaps.json` 改为 history 结构，保留 09-22 的历史结论不覆盖。原件模板与本项目 schema 不兼容（12 处 UNKNOWN_FIELD），只作参考，实现侧示例在 `config/examples/` 且有测试。
+
+## 2026-09-27 真实 launcher 核实（HOST-01 由 NOT_RUN 转 PASS）
+
+按核查报告 P1-01 的要求补上"固定版 launcher + 临时 home/profile + 构建产物"这条链：
+`scripts/host_boot_check.mjs` 在临时 `DSH_HOME` 里 `npm install @deepseek-ai/dsh@0.1.7-alpha.1`
+（240 个 `@deepseek-ai` 包、519 MB，`--version` 自报 0.1.7-alpha.1），再用 `--patch` 叠加层装载
+`packages/adapter-dsh/dist/src/jey-plugin.js`。**不读写 `~/.dsh`**，日志落盘前先把 `token=` 抹掉。
+
+| 检查 | 结果 |
+|---|---|
+| `--dump-config` 组合出我们的条目（含构建产物绝对路径与配置块） | PASS ×3 |
+| 故意坏的配置（`enforce` + `mock`）由**我们**拒绝：launcher 输出里出现 `invalid Jey configuration: ENFORCE_WITH_MOCK@/provider/kind`，且拒绝前不产生 mount 行 | PASS ×2 |
+| `off` 与 `shadow` 真启动：宿主监听 + 审计里出现 mount 行（shadow 那次 journal 恰好 1 行，没有凭空多出的判定） | PASS ×3 |
+
+同一台机器上的两个版本对同一份坏配置给出**相反**的行为，这条差异单独记（缺陷 27、HOST_CONTRACT §13）：
+
+| launcher | 抛错的第三方条目 | 退出码 | 是否仍监听 |
+|---|---|---|---|
+| `0.1.7-alpha.1`（固定合同版） | `dsh: warning: 1 entry did not activate` + 原始错误 | 0 | 是 |
+| `0.1.5-rc.2`（本机 `~/.dsh` 实装） | `dsh: plugin tree failed to load: failed to apply loader entry jey` | 1 | 否 |
+
+**没做的事**：两次启动都没有驱动任何一轮模型调用，所以这组证据只覆盖"组合与装载"，
+不提供判定质量结论；HOST-02 仍是 PARTIAL，HOST-04/06/08/09/10/14 不变。原始结果与两个版本的
+对照写在 `artifacts/host_launcher_boot.json`。
 
 ## 过程中发现并修掉的真实缺陷
 
@@ -164,6 +188,9 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 25. `LocalOptions.requestTimeoutMs` 声明了但从未被读——一个看起来能调、实际无效的全局超时，而且和"超时只来自请求剩余预算"的设计相矛盾。删掉，不是补上。
 26. **`provider.local.expectedModel` 是个纯装饰字段**：schema 要求它、`config.ts` 给它建了类型、`loadConfig` 校验它的形状，但从头到尾**没有任何一处把它和服务自报的身份对比过**。也就是说，本机跑着另一个 checkpoint（换了文件、换了量化、被人替掉），Jey 照样把任务状态发过去。写服务的时候为了对齐 `sha256:` 前缀才撞见。现在由 `ExpectedProvider` 在**发第一个请求之前**探 `capabilities()` 逐字段比对，不匹配即 `UNSUPPORTED_CAPABILITY`、不可重试、提供方调用数保持 0；探测不带任务状态，所以代价不是内容外泄。这跟早先 `perTurnCalls`"配置里有但没人执行"是同一类洞：**声明了的控制必须找到执行它的那行代码，否则它只是文档。**
 
+27. **我们记过的"配置被拒 ⇒ 宿主起不来"在固定版 launcher 上不成立**（2026-09-27 实测，见"真实 launcher 核实"一节）。`0.1.7-alpha.1` 把抛错的第三方条目归为"未激活"，只输出一行 warning 然后照常 serve；同一份配置在 `0.1.5-rc.2` 上会中止启动。这不是 Jey 的缺陷，是宿主的装载策略，但后果落在我们头上：**一个配了 enforce 却装载被拒的部署，运行的是"没有 Jey"**，而第三方插件没有任何办法把自己的激活变成必需。
+28. **"Jey 已经装载并在看"此前没有任何可核对的证据**。宿主启动期的日志 exporter 是 `levels:{default:2}`，插件 info 行被过滤；off/shadow 装载成功后什么都不写。现在装载即写一行 `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用），于是"启动后审计里没有 mount 行"就是可判定的"Jey 不在"。
+
 另记：一次用 shell 打补丁的操作有 3 处替换静默没生效却报告成功，靠 grep 复核才发现；此后同类改动一律用编辑器改并回读确认。本轮仍有一次编辑器改动把 `class Job:` 换成了错误的目标行（缺陷 23），说明"回读"这一步不能省——工具说成功只代表它做了某件事，不代表那件事是对的。
 
 这些都属于“看起来通过、实际不安全”一类，记录在此以便复核。
@@ -175,7 +202,7 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 | cloud-inference | **BLOCKED** | 无 `TYPESAFE_API_KEY`、无调用预算。代码与 fixture 契约测试照常实现 |
 | local-inference | **已解除** | 2026-09-25 授权后完成：Python 3.12.13（uv）、SemIf 固定提交 editable 安装、3.01 GB 权重按锁校验通过。真实推理见上表。取权重过程中 HF 的 xet 传输在本机走到约 11 MB 后完全停住（进程活着，六分钟内零进展），杀掉后设 `HF_HUB_DISABLE_XET=1` 走经典 HTTP 达到 ~3 MB/s、十来分钟完成并验过 sha256——`download_weights.py` 里那行 setdefault 就是为这个，不是风格选择。第一次尝试留下的 `.incomplete` 仍躺在缓存里，不影响正确性 |
 | `ask` 授予通道 | **BLOCKED** | 本宿主拓扑没有 `dsh-user-approval`，需先组合它再测 |
-| `restrict()` 时序、发行版 overlay 启动 | **NOT_RUN** | §8.2 presentation-only gate；M2 遗留 |
+| `restrict()` 时序 | **NOT_RUN** | §8.2 presentation-only gate；发行版 overlay 装载已于 2026-09-27 核实（HOST-01 PASS），这一项仍未做 |
 | 宿主级 egress 拒绝（真实提供方） | **NOT_RUN** | 现在具备条件：local 服务可以真跑，M5 补 |
 | secret-scan / pack-install / CI | **NOT_RUN** | M5/M7 |
 | MCP 适配（M4）、评测（M6）、最终报告（M8） | **NOT_STARTED** | — |

@@ -9,11 +9,11 @@
 
 ## host-integration（14）
 
-命令：`pnpm --filter jey-adapter-dsh test`（真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有规划 LLM 是脚本驱动器）
+命令：`pnpm --filter jey-adapter-dsh test`（真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有规划 LLM 是脚本驱动器）；HOST-01 另跑 `node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home <临时 home>`（真实发行版 launcher + 构建产物）
 
 | 案例 | 状态 | 证据 / 差在哪 |
 |---|---|---|
-| HOST-01 真实 Launcher 加载 | **NOT_RUN** | 现有测试直接 `mountJey(ctx,…)`；未跑 `dsh --profile … web` + `cordis.yml` overlay（P1-01） |
+| HOST-01 真实 Launcher 加载 | **PASS** | `scripts/host_boot_check.mjs`：临时 `DSH_HOME` + `@deepseek-ai/dsh@0.1.7-alpha.1` 真实 launcher + `--patch` 装载**构建产物**。8 条检查全过（`--dump-config` 组合出我们的条目、`enforce+mock` 由我们的 `ConfigError` 拒绝且拒绝前不写 mount 行、`off`/`shadow` 真启动且审计出现 mount 行）。证据 `artifacts/host_launcher_boot.json`。注意同版本下"装载被拒只 warning 后继续 serve"，见 `docs/HOST_CONTRACT.md` §13 |
 | HOST-02 真实原生调用 | **PARTIAL** | 事件顺序在真实 loop 上可追踪（`ordering.test.ts`），但模型是脚本、工具是探针，缺真模型驱动的一轮 |
 | HOST-03 组装时序 | **PASS** | `observes assemble -> pre-step -> pre-execute -> execute -> result on the real runtime`、`advertises exactly the assembled tool set to the model` |
 | HOST-04 最终输入改写 | **NOT_RUN** | `presentationFilter` 现在直接拒绝装载（`FEATURE_NOT_IMPLEMENTED`），未实现 |
@@ -111,7 +111,7 @@
 
 | gate | PASS | PARTIAL | NOT_RUN | BLOCKED |
 |---|---:|---:|---:|---:|
-| host-integration | 5 | 4 | 4 | 1 |
+| host-integration | 6 | 4 | 3 | 1 |
 | property | 5 | 1 | 0 | 0 |
 | provider-contract | 8 | 2 | 0 | 0 |
 | security | 7 | 2 | 0 | 0 |
@@ -122,6 +122,6 @@
 | pack-install | 0 | 0 | 5 | 0 |
 | semantic-eval | 0 | 0 | 4 | 0 |
 | system-eval | 0 | 0 | 4 | 0 |
-| **合计 74** | **37** | **11** | **24** | **2** |
+| **合计 74** | **38** | **11** | **23** | **2** |
 
-37 条 PASS 全部能指到具名测试或一次真实运行；24 条 NOT_RUN 是**没做过**，不是"大概能过"。
+38 条 PASS 全部能指到具名测试或一次真实运行；23 条 NOT_RUN 是**没做过**，不是"大概能过"。

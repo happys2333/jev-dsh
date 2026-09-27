@@ -8,7 +8,7 @@ Jey 是一个嵌进现有 Agent 的**可替换模型的结构化决策层**。�
 
 **还不能当作发行版安装**（`jey-*` 未发布）。装载方式见 [`docs/INSTALL_DSH.md`](docs/INSTALL_DSH.md)。
 
-一句话状态：**具备真实本地推理能力的开发原型**。决策核心与宿主接线都能跑，独立核查（`docs/IMPLEMENTATION_REVIEW_20260927.md`）发现的 7 项宿主保护逻辑缺陷（P0-01～P0-07）已逐项修复并补上回归测试；但真实 launcher 安装、审批通道、MCP、安全验收与模型质量评测都还没做。
+一句话状态：**具备真实本地推理能力的开发原型**。决策核心与宿主接线都能跑，独立核查（`docs/IMPLEMENTATION_REVIEW_20260927.md`）发现的 7 项宿主保护逻辑缺陷（P0-01～P0-07）已逐项修复并补上回归测试；构建产物也已在固定版真实 launcher 上装载核实（HOST-01）。但可安装的发发包、审批通道、MCP、安全验收与模型质量评测都还没做。
 
 因此不写"M0–M2 gate 已全部通过"这种话：工程 gate 绿过，只说明**已写下的测试**通过。逐条状态看这两份：
 
@@ -22,11 +22,13 @@ pnpm install
 pnpm -r build && pnpm -r typecheck     # 类型合同
 pnpm --filter jey-core test            # 157 条单元
 pnpm --filter jey-core test:property   # 16 条属性
-pnpm --filter jey-adapter-dsh test     # 40 条：真实 agent loop 上的宿主闭环、装载入口、外发与审计
+pnpm --filter jey-adapter-dsh test     # 41 条：真实 agent loop 上的宿主闭环、装载入口、外发与审计
 pnpm --filter jey-provider-typesafe test  # 20 条：云端线格式契约，夹具来自官方文档，全程不联网
 pnpm --filter jey-provider-local test     # 14 条：本地评分服务客户端契约（只认字面 loopback 等）
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .
                                          # 58 条：本地服务协议面与真实推理（推理需显式授权，默认 skip）
+node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home ../.work/dsh-host
+                                         # 真 launcher 装载核实：临时 DSH_HOME + npm 安装 + --patch 构建产物，不碰 ~/.dsh
 ```
 
 ## 三条不可妥协的约束

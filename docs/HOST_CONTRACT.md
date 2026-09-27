@@ -161,7 +161,7 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
   在装载时探测宿主是否真的提供审批通道，并把 `approvalChannel` 据实传给 `evaluatePolicy`，
   不能凭配置假定。
 - **`ctx.tools.restrict()` 未演练**，不记任何结论（第 8.2 节 presentation-only gate 仍未开始）。
-- 真实 `@deepseek-ai/dsh` 发行版的 `cordis.yml` overlay 加载未做（M2 的 host-integration gate 内容）。
+- ~~真实 `@deepseek-ai/dsh` 发行版的 `cordis.yml` overlay 加载未做~~：**2026-09-27 已做**，见 §13。
 
 ## 11. 本文件需更正的四处
 
@@ -174,13 +174,38 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
    解析到了 `0.1.7-alpha.2`。这正是交接包禁止的“源码最新分支与已发布旧包混装”，
    在 CI 里必须靠 lockfile + `pnpm dedupe`/overrides 固定，不能靠 `^`。
 3. 扩展点签名与本文件第 3 节逐字一致，**无漂移**。
-4. **effect 内抛错会连带拒绝 `ctx.plugin()`。** 实测：`apply` 里注册的 effect 抛 `ConfigError` 时，`await ctx.plugin(plugin, config)` 一起被 reject，插件不会半装上去。这意味着"配置被拒但装载成功、功能静默失效"这条最坏路径在宿主层面就走不通，我们的 `enforce+mock` 拒绝因此是真拒绝而不是运行期降级。
+4. **effect 内抛错会连带拒绝 `ctx.plugin()`。** 实测：`apply` 里注册的 effect 抛 `ConfigError` 时，`await ctx.plugin(plugin, config)` 一起被 reject，插件不会半装上去。**但这只在进程内的 `ctx.plugin()` 层面成立**：发行版 launcher 在 `0.1.7-alpha.1` 上会把这条失败归类成"未激活条目"并继续启动（见 §13）。所以"配置被拒 ⇒ 整个宿主起不来"不能对宿主做保证，只能对自己保证。
 
 ## 12. M0 gate 状态
 
 | gate | 状态 | 说明 |
 |---|---|---|
 | compatibility | **PASS（本地运行时部分）** | 顺序、工具投影、deny、guard、结果冻结均已在真实 loop/ToolRuntime 上执行并通过；`artifacts/compatibility.json` 可重放 |
-| compatibility · 发行版 overlay 加载 | **NOT_RUN** | 需以 `@deepseek-ai/dsh` 发行入口 + `cordis.yml` 绝对路径装载，属 M2 |
+| compatibility · 发行版 overlay 加载 | **PASS** | `0.1.7-alpha.1` 真实 launcher + 临时 `DSH_HOME` + `--patch` overlay 装载构建产物；`scripts/host_boot_check.mjs` 可重放，证据 `artifacts/host_launcher_boot.json`（见 §13） |
+
+## 13. 真实 launcher 核实（2026-09-27 执行）
+
+方式：临时 `DSH_HOME`（不碰 `~/.dsh`）→ `npm install @deepseek-ai/dsh@0.1.7-alpha.1`（240 个
+`@deepseek-ai` 包，519 MB）→ `dsh --profile web --patch <overlay> --dump-config` / 真启动，
+`--port 0 --no-open`。脚本 `scripts/host_boot_check.mjs`，结果 `artifacts/host_launcher_boot.json`。
+
+三条对后续设计有约束的实测事实：
+
+1. **装载被拒不会中止宿主。** `dsh-app-boot` 的 `boot()` 只对硬编码的
+   `requiredStartupEntryIds`（`agent-loop`、`webserver`、`modules`、`connection`、
+   `headless-runner`、`acp`、`sdk-jsonrpc-server`）判死；第三方条目抛错被归入
+   `dsh: warning: N entry did not activate`，然后照常 serve（退出码 0）。
+   同一份配置在 `0.1.5-rc.2` 上得到的是 `plugin tree failed to load` + 退出码 1 + 不监听。
+   ⇒ **一个本应 enforce 的部署，如果配置被拒，会以"完全没有 Jey"的状态继续运行**，
+   外部唯一信号是那行 warning。第三方插件没有任何开关能把自己的激活变成必需。
+2. **装载期 info 日志被过滤。** 启动 exporter 是 `levels: { default: 2 }`（warn 及以上），
+   插件的 `info` 行在 boot 窗口内不可见。⇒ "我装载好了、当前是什么模式"不能靠宿主日志证明，
+   改由 Jey 自己的审计通道承担：装载成功即写一行
+   `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用）。
+   这也给外部看门狗一个可判定信号：启动后没有 mount 行 = Jey 不在。
+3. **`DSH_HOME` 可整体重定向**，profile 目录在 `$DSH_HOME/profiles/<name>`；每次 boot 都会用
+   内置默认文本重写该目录下的 `cordis.yml`（内容幂等，但要意识到 launcher 会写用户目录）。
+   `--patch` 叠加层是唯一不动用户文件的注入方式。
+
 | compatibility · `ask` 授予通道 | **BLOCKED** | 未组合审批服务；降级行为已实测并记录 |
 | compatibility · `restrict()` 时序 | **NOT_RUN** | 与 §8.2 gate 绑定，未开始 |
