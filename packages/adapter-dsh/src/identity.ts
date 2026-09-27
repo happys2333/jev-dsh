@@ -2,6 +2,7 @@ import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, ProviderIdentity,
 } from 'jey-contracts'
 import type { ModelIdentity } from 'jey-core'
+import { sameDigest } from 'jey-core'
 
 /**
  * The config schema requires `provider.local.expectedModel`, and the service reports
@@ -27,11 +28,6 @@ export class IdentityMismatch extends Error {
   }
 }
 
-/** `sha256:<hex>` and a bare `<hex>` name the same digest; case is not part of it. */
-function digest(value: string): string {
-  return value.replace(/^sha256:/i, '').toLowerCase()
-}
-
 export function identityMismatches(expected: ModelIdentity, reported: ProviderIdentity): string[] {
   const out: string[] = []
   if (reported.synthetic) out.push('synthetic')
@@ -45,7 +41,7 @@ export function identityMismatches(expected: ModelIdentity, reported: ProviderId
       out.push(field)
       continue
     }
-    if (field === 'weightsDigest' ? digest(wanted) !== digest(actual) : wanted !== actual) out.push(field)
+    if (field === 'weightsDigest' ? !sameDigest(wanted, actual) : wanted !== actual) out.push(field)
   }
   return out
 }

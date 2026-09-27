@@ -6,7 +6,7 @@ import type {
   DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
 } from 'jey-contracts'
 import {
-  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assertSupported, assessmentState, buildSnapshot, checkEgress,
+  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assertSupported, assessmentState, buildSnapshot, calibrationApplies, checkEgress,
   compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
   type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
 } from 'jey-core'
@@ -625,6 +625,22 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     })).ref
     const fresh = isFresh(ref, current)
     const response = outcome.response
+    // A calibration block is evidence about one model/template/task. Comparing it with the
+    // identity that answered this very request is what stops "a file exists on disk" from
+    // upgrading raw probabilities into a calibrated denial (§6.4).
+    const calibration = config.calibration
+    const calibrationReasons = calibration === undefined
+      ? []
+      : calibrationApplies(
+        { id: calibration.id, model: calibration.appliesTo.model, templateDigest: calibration.appliesTo.templateDigest, task: calibration.appliesTo.task },
+        response.provider, request.purpose, response.outcomes,
+      )
+    const calibrated = calibration !== undefined && calibrationReasons.length === 0
+    // An unusable calibration must be visible in the record, not silently ignored: the
+    // operator needs to know why a configured deny threshold had no effect.
+    const calibrationNotes = calibration !== undefined && !calibrated
+      ? calibrationReasons.map(r => `calibration-unapplied:${r}`)
+      : []
     const policy = evaluatePolicy({
       mode: config.mode,
       host,
@@ -632,15 +648,15 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       hardRuleViolations: [],
       outcomes: response.outcomes,
       snapshotFresh: fresh,
-      calibrationAvailable: config.calibration !== undefined,
-      ...(config.calibration === undefined ? {} : {
+      calibrationAvailable: calibrated,
+      ...(calibrated ? {
         thresholds: {
-          conflictAskAtOrAbove: config.calibration.conflictAskAtOrAbove,
-          conflictDenyAtOrAbove: config.calibration.conflictDenyAtOrAbove,
-          goalBelow: config.calibration.goalBelow,
-          evidenceBelow: config.calibration.evidenceBelow,
+          conflictAskAtOrAbove: calibration.conflictAskAtOrAbove,
+          conflictDenyAtOrAbove: calibration.conflictDenyAtOrAbove,
+          goalBelow: calibration.goalBelow,
+          evidenceBelow: calibration.evidenceBelow,
         },
-      }),
+      } : {}),
     })
     const observation = {
       providerKind: response.provider.kind,
@@ -666,14 +682,14 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const fallback: HostDecision = approvalChannel
         ? { kind: 'ask', reason: 'jey: snapshot stale' }
         : { kind: 'deny', reason: 'jey: snapshot stale' }
-      record({ request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes], action: policy.action, hostDecision: host, observation, stale: true })
+      record({ request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes, ...calibrationNotes], action: policy.action, hostDecision: host, observation, stale: true })
       return toPreTool(host.kind === 'deny' || host.kind === 'cancel' ? host : fallback)
     }
     if (resolution.kind === 'already-applied') {
       record({ request, ref, truncatedPaths: truncated, reasonCodes: ['already-applied'], action: 'abstain', hostDecision: host, observation })
       return toPreTool(host)
     }
-    record({ request, ref, truncatedPaths: truncated, reasonCodes: policy.reasonCodes, action: policy.action, hostDecision: host, observation })
+    record({ request, ref, truncatedPaths: truncated, reasonCodes: [...policy.reasonCodes, ...calibrationNotes], action: policy.action, hostDecision: host, observation })
     return toPreTool(resolution.decision)
   }
 

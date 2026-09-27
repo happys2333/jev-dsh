@@ -1,8 +1,11 @@
 export {
   combineHostAndJey,
   evaluatePolicy,
+  calibrationApplies,
+  sameDigest,
   RESTRICTION_RANK,
   REQUIRED_QUESTION_IDS,
+  type CalibrationApplicability,
   type PolicyInput,
   type PolicyResult,
   type PolicyThresholds,

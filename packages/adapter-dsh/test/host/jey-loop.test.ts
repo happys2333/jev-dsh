@@ -56,6 +56,8 @@ interface LoopOptions {
   readonly failTool?: boolean
   /** Session ids to create; the first one is returned as `agent` too. */
   readonly sessions?: readonly string[]
+  /** Replace the injected provider, e.g. to control the identity it reports. */
+  readonly provider?: MockProvider
 }
 
 async function mountLoop(
@@ -67,7 +69,7 @@ async function mountLoop(
   setProbeToolFailure(options.failTool === true)
   const lines: string[] = []
   const audit: LineSink = { writeLine: line => { lines.push(line) } }
-  const provider = new MockProvider(answers)
+  const provider = options.provider ?? new MockProvider(answers)
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   const plugin = options.repeat === true ? repeatingProbeLlmPlugin : scriptedLlmPlugin
@@ -103,6 +105,24 @@ async function runTurn(ctx: Context, agent: Agent, text: string): Promise<void> 
 
 function decisions(runtime: JeyRuntime): readonly AuditEvent[] {
   return runtime.records.filter(r => r.kind === 'decision')
+}
+
+/**
+ * A local provider block pointed at a port nothing listens on. Nothing here ever opens a
+ * socket: the assertion in these tests is about what Jey decides *before* dispatch, so a
+ * refusal must be provable without a reachable service.
+ */
+function localProviderBlock(model?: { requested: string, revision: string }): Record<string, unknown> {
+  return {
+    endpoint: 'http://127.0.0.1:9', tokenRef: 'env:JEY_TEST_TOKEN', ownership: 'external',
+    expectedModel: model ?? { requested: 'any', revision: 'any' },
+  }
+}
+
+function localEgress(): Record<string, unknown> {
+  return {
+    mode: 'local-only', allowedOrigins: ['http://127.0.0.1:9'], allowedPurposes: ['tool-assessment'],
+  }
 }
 
 describe('Jey closed loop on a real DSH agent', () => {
@@ -213,6 +233,75 @@ describe('Jey closed loop on a real DSH agent', () => {
     const [record] = decisions(loop.runtime)
     assert.ok(record?.reasonCodes.some(r => r.startsWith('local-limit:maxQuestions')), JSON.stringify(record?.reasonCodes))
     assert.equal(record?.questionStatuses.every(s => s.status === 'error'), true)
+    loop.runtime.close()
+  })
+
+  it('will not let a mismatched calibration upgrade raw probabilities into a deny', async () => {
+    // R06: `calibrationAvailable` used to be `config.calibration !== undefined`, so any
+    // calibration block — fitted for another model, another template, another task —
+    // turned an uncalibrated probability into a denial.
+    const loop = await mountLoop(jeyConfig({
+      mode: 'enforce',
+      provider: { kind: 'local', local: localProviderBlock() },
+      egress: localEgress(),
+      calibration: {
+        id: 'fitted-for-something-else',
+        appliesTo: {
+          model: { requested: 'org/not-this-model', revision: 'f'.repeat(40) },
+          templateDigest: 'sha256:not-this-template', task: 'tool-assessment',
+        },
+        conflictAskAtOrAbove: 0.8, conflictDenyAtOrAbove: 0.9, goalBelow: 0.2, evidenceBelow: 0.2,
+      },
+    }), { 'conflicts-with-constraint': 0.99, 'advances-goal': 0.9, 'evidence-sufficient': 0.9 })
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    const [record] = decisions(loop.runtime)
+    assert.equal(record?.action, 'ask', `a borrowed calibration must not deny: ${JSON.stringify(record?.reasonCodes)}`)
+    assert.ok(record?.reasonCodes.includes('calibration-unapplied:calibration-model-requested'),
+      JSON.stringify(record?.reasonCodes))
+    assert.ok(record?.reasonCodes.includes('calibration-unapplied:calibration-answers-uncalibrated'),
+      'the observation itself says uncalibrated, and that has to be the reason given')
+    loop.runtime.close()
+  })
+
+  it('applies calibrated thresholds only when the answering identity really matches', async () => {
+    const id = 'heldout-2026-09'
+    const appliesTo = {
+      model: {
+        requested: 'org/weights', revision: 'a'.repeat(40), weightsDigest: `sha256:${'b'.repeat(64)}`,
+        tokenizerRevision: 'c'.repeat(40), quantization: 'Q4_K_M',
+      },
+      templateDigest: 'sha256:tmpl', task: 'tool-assessment' as const,
+    }
+    const loop = await mountLoop(jeyConfig({
+      mode: 'enforce',
+      provider: { kind: 'local', local: localProviderBlock(appliesTo.model) },
+      egress: localEgress(),
+      calibration: {
+        id, appliesTo, conflictAskAtOrAbove: 0.8, conflictDenyAtOrAbove: 0.9, goalBelow: 0.2, evidenceBelow: 0.2,
+      },
+    }), undefined, {
+      // The provider that answers claims the fitted identity and carries calibrated values.
+      provider: new MockProvider(
+        { 'conflicts-with-constraint': 0.99, 'advances-goal': 0.9, 'evidence-sufficient': 0.9 },
+        'answer',
+        {
+          calibrationId: id,
+          identity: {
+            kind: 'local', requestedModel: appliesTo.model.requested, modelRevision: appliesTo.model.revision,
+            weightsDigest: appliesTo.model.weightsDigest.replace(/^sha256:/, ''),
+            tokenizerRevision: appliesTo.model.tokenizerRevision,
+            templateDigest: appliesTo.templateDigest, quantization: appliesTo.model.quantization,
+          },
+        },
+      ),
+    })
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    const [record] = decisions(loop.runtime)
+    assert.equal(record?.action, 'deny', JSON.stringify(record?.reasonCodes))
+    assert.ok(record?.reasonCodes.includes('probability:conflict'), JSON.stringify(record?.reasonCodes))
+    assert.equal(record?.synthetic, true, 'even so, the row still says the answer was synthetic')
     loop.runtime.close()
   })
 

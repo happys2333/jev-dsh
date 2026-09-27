@@ -1,4 +1,5 @@
-import type { DecisionAction, HostDecision, Mode, QuestionOutcome } from 'jey-contracts'
+import type { DecisionAction, HostDecision, Mode, Purpose, ProviderIdentity, QuestionOutcome } from 'jey-contracts'
+import type { ModelIdentity } from './config.ts'
 
 /**
  * The two tables of spec section 7.2, as pure functions. No clock, no I/O, no
@@ -89,6 +90,78 @@ const DEFAULT_THRESHOLDS: PolicyThresholds = {
   conflictDenyAtOrAbove: 0.9,
   goalBelow: 0.2,
   evidenceBelow: 0.5,
+}
+
+export { DEFAULT_THRESHOLDS }
+
+/** The part of a calibration declaration that says what it was fitted for. */
+export interface CalibrationApplicability {
+  readonly id: string
+  readonly model: ModelIdentity
+  readonly templateDigest: string
+  readonly task: Purpose
+}
+
+/** `sha256:<hex>` and a bare `<hex>` name one digest; case is not part of it. */
+export function sameDigest(a: string, b: string): boolean {
+  const strip = (v: string): string => v.replace(/^sha256:/i, '').toLowerCase()
+  return strip(a) === strip(b)
+}
+
+/**
+ * Whether a calibrated denial may be derived from *this* observation at all.
+ *
+ * "A calibration file exists" is not the question. A fitted threshold is evidence about
+ * one model, one template and one task; applying it to anything else turns a measured
+ * error rate into a guess that happens to be able to deny work. So every identity field
+ * the declaration names has to match what the provider reported for this very response,
+ * and the response has to actually carry calibrated numbers — otherwise the configured
+ * thresholds would be applied to raw, uncalibrated probabilities.
+ */
+export function calibrationApplies(
+  appliesTo: CalibrationApplicability,
+  identity: ProviderIdentity | null,
+  purpose: Purpose,
+  outcomes: readonly QuestionOutcome[],
+): readonly string[] {
+  if (identity === null) return ['provider-identity-unknown']
+  const reasons: string[] = []
+  if (appliesTo.model.requested !== identity.requestedModel) reasons.push('calibration-model-requested')
+  if (appliesTo.model.revision !== identity.modelRevision) reasons.push('calibration-model-revision')
+  if (!sameDigest(appliesTo.templateDigest, identity.templateDigest)) reasons.push('calibration-template-digest')
+  if (appliesTo.task !== purpose) reasons.push(`calibration-task:${purpose}`)
+  for (const field of ['weightsDigest', 'tokenizerRevision', 'quantization'] as const) {
+    const wanted = appliesTo.model[field]
+    if (wanted === undefined) continue
+    const actual = identity[field]
+    if (actual === null) {
+      reasons.push(`calibration-${field}-unreported`)
+      continue
+    }
+    if (field === 'weightsDigest' ? !sameDigest(wanted, actual) : wanted !== actual) reasons.push(`calibration-${field}`)
+  }
+
+  const answered = outcomes.filter(o => o.status === 'answered' && o.answer.kind === 'boolean')
+  if (answered.length === 0) reasons.push('calibration-no-boolean-answers')
+  for (const outcome of answered) {
+    if (outcome.status !== 'answered' || outcome.answer.kind !== 'boolean') continue
+    const declared = outcome.answer.probability
+    // The observation says it is raw: a config block cannot relabel it as calibrated.
+    if (declared.calibration === 'uncalibrated') {
+      reasons.push('calibration-answers-uncalibrated')
+      break
+    }
+    if (declared.calibrationId !== appliesTo.id) {
+      reasons.push(declared.calibrationId === null ? 'calibration-id-unreported' : 'calibration-id-mismatch')
+      break
+    }
+    // Thresholds calibrated against P(yes) may not be applied to the raw pYes.
+    if (outcome.answer.calibratedPYes === undefined) {
+      reasons.push('calibration-values-missing')
+      break
+    }
+  }
+  return [...new Set(reasons)]
 }
 
 function boolAnswer(outcomes: readonly QuestionOutcome[], id: string): number | null {
