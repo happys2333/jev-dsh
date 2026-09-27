@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Context, Events } from '@deepseek-ai/cordis'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {
   DecisionAction, DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
 } from 'jey-contracts'
@@ -40,6 +41,46 @@ function fromPreTool(decision: { readonly kind: 'allow' | 'deny' | 'cancel' | 'a
   if (decision.kind === 'ask') return decision.reason === undefined ? { kind: 'ask' } : { kind: 'ask', reason: decision.reason }
   if (decision.kind === 'cancel') return { kind: 'cancel' }
   return { kind: 'allow' }
+}
+
+/**
+ * The row for a call that will not dispatch, decided from what we handed back.
+ *
+ * `not-dispatched` is a refusal Jey raised; `denied-by-host` is the host refusing a call
+ * Jey added nothing to. Both used to be recorded by *absence*, which a reader cannot tell
+ * apart from an execution row that was never written.
+ */
+export function refusalOf(
+  kind: HostDecision['kind'],
+  action: DecisionAction | null,
+  reasonCodes: readonly string[],
+): { readonly status: 'not-dispatched' | 'denied-by-host' | 'cancelled'; readonly failureCode: string } | null {
+  if (kind === 'cancel') return { status: 'cancelled', failureCode: action === 'cancel' ? 'jey-cancelled' : 'caller-cancelled' }
+  if (kind !== 'deny') return null
+  if (action !== 'deny') return { status: 'denied-by-host', failureCode: 'host-denied' }
+  if (reasonCodes.includes('approval-channel-absent')) return { status: 'not-dispatched', failureCode: 'approval-channel-absent' }
+  if (reasonCodes.includes('audit-blocked')) return { status: 'not-dispatched', failureCode: 'audit-blocked' }
+  return { status: 'not-dispatched', failureCode: 'jey-denied' }
+}
+
+/**
+ * What the host finally did with a call, given the approval outcome (when there was one)
+ * and the settled result.
+ *
+ * A `default` branch is deliberate: if the host's approval vocabulary ever grows, the
+ * new value lands as a denial with its name in the failure code, never as `succeeded`.
+ */
+export function executionStatusOf(
+  approval: ApprovalOutcome | undefined,
+  isError: boolean,
+): { readonly status: 'succeeded' | 'failed' | 'cancelled' | 'denied-by-host'; readonly failureCode: string | null } {
+  if (approval === undefined || approval === 'allowed-once') {
+    return { status: isError ? 'failed' : 'succeeded', failureCode: isError ? 'tool-reported-error' : null }
+  }
+  if (approval === 'cancelled') return { status: 'cancelled', failureCode: 'approval-cancelled' }
+  if (approval === 'rejected') return { status: 'denied-by-host', failureCode: 'approval-rejected' }
+  if (approval === 'unavailable') return { status: 'denied-by-host', failureCode: 'approval-unavailable' }
+  return { status: 'denied-by-host', failureCode: `approval-outcome-unknown:${String(approval)}` }
 }
 
 /** How much of one user message is carried as evidence before it is reported as cut. */
@@ -447,10 +488,19 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     input: Parameters<typeof record>[0],
     decision: HostDecision,
     approvalChannel: boolean,
+    exec: Executable & { readonly rootCallId?: string | null },
   ): HostDecision {
     const written = record(input)
-    if (!shouldBlockDispatch(config.audit.onFailure, written)) return decision
+    if (!shouldBlockDispatch(config.audit.onFailure, written)) {
+      // Register the call for its outcome row here rather than at one call site, so every
+      // path that ends a decision — hard rule, egress refusal, provider error, stale
+      // snapshot, or a normal policy outcome — leaves the same kind of record.
+      trackDispatch(exec, input.request, decision, input.action, input.reasonCodes)
+      return decision
+    }
     runtime.auditBlocked = true
+    // No execution row on this path: the decision row it would correlate to never landed,
+    // and a row pointing at an unheard-of requestId would be an invention.
     const reason = `jey: audit required but this decision could not be written (${written.reason})`
     return approvalChannel ? { kind: 'ask', reason } : { kind: 'deny', reason }
   }
@@ -565,7 +615,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const policy = evaluatePolicy({ mode: config.mode, host, approvalChannel, outcomes: errorOutcomes(request, 'INSUFFICIENT_CONTEXT') })
       return toPreTool(conclude(
         { request, ref, truncatedPaths: truncated, reasonCodes: [`insufficient-context:${neededBytes}`, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
-        policy.combined, approvalChannel,
+        policy.combined, approvalChannel, exec,
       ))
     }
 
@@ -579,12 +629,14 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
         : { kind: 'deny', reason: `jey: ${violations.join(', ')}` }
       const policy = evaluatePolicy({ mode: config.mode, host, hardRuleViolations: violations, approvalChannel })
       record({ request, ref, truncatedPaths: truncated, reasonCodes: policy.reasonCodes, action: 'deny', hostDecision: host, observation: null })
+      trackDispatch(exec, request, decision, 'deny', policy.reasonCodes)
       return toPreTool(decision)
     }
 
     if (runtime.auditBlocked) {
       const reason = 'jey: audit required but unwritable'
       record({ request, ref, truncatedPaths: truncated, reasonCodes: ['audit-blocked'], action: 'deny', hostDecision: host, observation: null })
+      trackDispatch(exec, request, { kind: 'deny', reason }, 'deny', ['audit-blocked'])
       return { kind: 'deny', reason }
     }
 
@@ -617,7 +669,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       })
       return toPreTool(conclude(
         { request, ref, truncatedPaths: truncated, reasonCodes: [...egress.reasons, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
-        policy.combined, approvalChannel,
+        policy.combined, approvalChannel, exec,
       ))
     }
 
@@ -630,7 +682,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       })
       return toPreTool(conclude(
         { request, ref, truncatedPaths: truncated, reasonCodes: [refusal.reason, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
-        policy.combined, approvalChannel,
+        policy.combined, approvalChannel, exec,
       ))
     }
 
@@ -643,7 +695,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       const why = outcome.kind === 'failed' ? `provider:${outcome.code}` : `coordinator:${outcome.kind}`
       return toPreTool(conclude(
         { request, ref, truncatedPaths: truncated, reasonCodes: [why, ...policy.reasonCodes], action: policy.action, hostDecision: host, observation: null },
-        policy.combined, approvalChannel,
+        policy.combined, approvalChannel, exec,
       ))
     }
 
@@ -719,21 +771,18 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       return toPreTool(conclude({
         request, ref, truncatedPaths: truncated, reasonCodes: ['stale-snapshot', ...policy.reasonCodes, ...calibrationNotes],
         action: policy.action, hostDecision: host, observation, stale: true,
-      }, host.kind === 'deny' || host.kind === 'cancel' ? host : fallback, approvalChannel))
+      }, host.kind === 'deny' || host.kind === 'cancel' ? host : fallback, approvalChannel, exec))
     }
     if (resolution.kind === 'already-applied') {
       return toPreTool(conclude({
         request, ref, truncatedPaths: truncated, reasonCodes: ['already-applied'],
         action: 'abstain', hostDecision: host, observation,
-      }, host, approvalChannel))
+      }, host, approvalChannel, exec))
     }
-    // Remember what was applied, keyed by the host's own call identity, so the settled
-    // result can be published as its own row and correlated back to this decision.
-    trackDispatch(exec, request, resolution.decision)
     return toPreTool(conclude({
       request, ref, truncatedPaths: truncated, reasonCodes: [...policy.reasonCodes, ...calibrationNotes],
       action: policy.action, hostDecision: host, observation,
-    }, resolution.decision, approvalChannel))
+    }, resolution.decision, approvalChannel, exec))
   }
 
   /**
@@ -741,28 +790,83 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
    * because a long-running host must not accumulate one entry per call forever; the
    * oldest are dropped, and a dropped entry simply means that call has no execution row.
    */
-  const dispatched = new Map<string, { readonly requestId: string, readonly sessionId: string, readonly agentId: string, readonly toolName: string, readonly action: DecisionAction }>()
+  const dispatched = new Map<string, {
+    readonly requestId: string
+    readonly sessionId: string
+    readonly agentId: string
+    readonly toolName: string
+    readonly action: DecisionAction | null
+    readonly refused: ReturnType<typeof refusalOf>
+  }>()
   const DISPATCH_CAP = 256
 
+  /**
+   * Remember one key until the cap is reached, then drop the oldest. A host that runs
+   * for days must not grow a side table per call, and a dropped entry only costs one
+   * execution row's detail — never a decision.
+   */
+  function remember<K, V>(store: Map<K, V>, key: K, value: V): void {
+    store.set(key, value)
+    while (store.size > DISPATCH_CAP) {
+      const oldest = store.keys().next()
+      if (oldest.done === true) break
+      store.delete(oldest.value)
+    }
+  }
+
+  /**
+   * Approval outcomes, keyed by the exact call the host put the question about.
+   *
+   * Jey never runs an approval channel of its own: it returns `ask` and the host's tools
+   * pipeline resolves it through `ctx.get('approval')`. `tools/result` fires either way,
+   * so without this a human "no" and a tool crash land as the same row, and §11 asks for
+   * what actually happened. The host's durable `approval/asked` + `approval/decided` pair
+   * is the supported source, and `callId` is the only key it shares with an execution.
+   */
+  const askedByApproval = new Map<string, string>()
+  const approvalOutcomes = new Map<string, ApprovalOutcome>()
+
+  const sessionOff = ctx.on('session/event', (_session, event) => {
+    if (event.type === 'approval/asked') {
+      const callId = event.data.callId
+      if (typeof callId === 'string') remember(askedByApproval, event.data.id, callId)
+      return
+    }
+    if (event.type === 'approval/decided') {
+      const callId = askedByApproval.get(event.data.id)
+      if (callId !== undefined) remember(approvalOutcomes, callId, event.data.outcome)
+    }
+  })
+
+  function takeApprovalOutcome(exec: { readonly callId?: string | null }): ApprovalOutcome | undefined {
+    const callId = exec.callId
+    if (typeof callId !== 'string') return undefined
+    const outcome = approvalOutcomes.get(callId)
+    approvalOutcomes.delete(callId)
+    return outcome
+  }
+
+  /**
+   * Register the call so its settled result can be published as its own row — including
+   * calls that were refused, because "there is no row" is otherwise the only place a
+   * reader can see that nothing ran, and it is indistinguishable from a dropped entry.
+   */
   function trackDispatch(
     exec: Executable & { readonly rootCallId?: string | null },
     request: DecisionRequest,
     decision: HostDecision,
+    action: DecisionAction | null,
+    reasonCodes: readonly string[],
   ): void {
     if (exec.rootCallId === undefined || exec.rootCallId === null) return
-    if (decision.kind === 'deny' || decision.kind === 'cancel') return
-    dispatched.set(exec.rootCallId, {
+    remember(dispatched, exec.rootCallId, {
       requestId: request.requestId,
       sessionId: scopeKeyOf(exec),
       agentId: scopeKeyOf(exec),
       toolName: exec.name,
-      action: decision.kind === 'ask' ? 'ask' : 'abstain',
+      action,
+      refused: refusalOf(decision.kind, action, reasonCodes),
     })
-    while (dispatched.size > DISPATCH_CAP) {
-      const oldest = dispatched.keys().next()
-      if (oldest.done === true) break
-      dispatched.delete(oldest.value)
-    }
   }
 
   // Network-free by construction: nothing here may await, so it can only speak about
@@ -784,14 +888,19 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     const pending = callId === null ? undefined : dispatched.get(callId)
     if (callId !== null && pending !== undefined) {
       dispatched.delete(callId)
+      const outcome = takeApprovalOutcome(exec)
+      // Known limitation, stated rather than guessed around: a refusal from the sandbox or
+      // another plugin arrives here as nothing but an error result, so it is recorded as
+      // `failed`. Only outcomes the host publishes as durable session events are relabelled.
+      const execution = pending.refused ?? executionStatusOf(outcome, result.isError)
       journal.emit(recordExecution({
         requestId: pending.requestId,
         sessionId: pending.sessionId,
         agentId: pending.agentId,
         toolName: exec.name,
-        status: result.isError ? 'failed' : 'succeeded',
+        status: execution.status,
         appliedAction: pending.action,
-        failureCode: result.isError ? 'tool-reported-error' : null,
+        failureCode: execution.failureCode,
         at: now(),
       }))
     }
@@ -818,6 +927,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     ctx.on('system-prompt/assemble', onAssemble),
     ctx.on('agent/pre-step', onPreStep),
     ctx.on('tools/pre-execute', onPreExecute),
+    sessionOff,
   ]
 
   // A host that accepts the config says nothing about it, so "mounted and watching" and

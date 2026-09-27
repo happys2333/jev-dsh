@@ -127,6 +127,34 @@ test('evaluatePolicy: enforce with no approval channel denies on unavailable che
   assert.equal(r.action, 'deny')
 })
 
+test('evaluatePolicy: every escalation names the absent channel it degraded for', () => {
+  // The point is uniformity: an `ask` the host cannot surface is not a neutral hand-off,
+  // the host resolves it to a denial anyway. Deciding that here is what lets the record
+  // say which denial came from the evidence and which came from having nobody to ask.
+  const outcomes = boolOutcomes({
+    [REQUIRED_QUESTION_IDS.conflictsWithConstraint]: 0.99,
+    [REQUIRED_QUESTION_IDS.advancesGoal]: 0.05,
+    [REQUIRED_QUESTION_IDS.evidenceSufficient]: 0.05,
+  })
+  const cases: { name: string, cause: string, input: Omit<Parameters<typeof evaluatePolicy>[0], 'mode' | 'host' | 'approvalChannel'> }[] = [
+    { name: 'conflict', cause: 'conflict-signal-uncalibrated', input: { outcomes } },
+    { name: 'goal', cause: 'probability:goal-off-track', input: { outcomes: boolOutcomes({ [REQUIRED_QUESTION_IDS.conflictsWithConstraint]: 0.1, [REQUIRED_QUESTION_IDS.advancesGoal]: 0.05 }) } },
+    { name: 'evidence', cause: 'insufficient-evidence', input: { outcomes: boolOutcomes({ [REQUIRED_QUESTION_IDS.conflictsWithConstraint]: 0.1, [REQUIRED_QUESTION_IDS.evidenceSufficient]: 0.05 }) } },
+    { name: 'stale', cause: 'stale-snapshot', input: { outcomes, snapshotFresh: false } },
+    { name: 'missing-check', cause: 'required-check-unavailable', input: { outcomes: [] } },
+  ]
+  for (const c of cases) {
+    const without = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, approvalChannel: false, ...c.input })
+    assert.equal(without.action, 'deny', c.name)
+    assert.ok(without.reasonCodes.includes('approval-channel-absent'), `${c.name}: ${JSON.stringify(without.reasonCodes)}`)
+    assert.ok(without.reasonCodes.includes(c.cause), `${c.name}: lost its own cause`)
+
+    const withChannel = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, approvalChannel: true, ...c.input })
+    assert.equal(withChannel.action, 'ask', c.name)
+    assert.ok(!withChannel.reasonCodes.includes('approval-channel-absent'), c.name)
+  }
+})
+
 test('evaluatePolicy: an uncalibrated conflict signal may escalate but may not deny', () => {
   const uncalibrated = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, outcomes: boolOutcomes({ [REQUIRED_QUESTION_IDS.conflictsWithConstraint]: 0.99 }), approvalChannel: true, calibrationAvailable: false })
   assert.equal(uncalibrated.action, 'ask')

@@ -160,6 +160,21 @@ describe('Jey closed loop on a real DSH agent', () => {
     loop.runtime.close()
   })
 
+  it('keeps a later listener’s denial ahead of what Jey decides', async () => {
+    // The monotone table in core is only half the guarantee: the adapter reads the host's
+    // decision through `fromPreTool`, and a dropped `deny` branch there would quietly hand
+    // the host's own refusal back as an allow. Nothing in core can see that.
+    const loop = await mountLoop(jeyConfig())
+    loop.ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'later-policy-denied' }))
+    await runTurn(loop.ctx, loop.agent, 'note this down')
+
+    assert.equal(probeToolBodyCalls().length, 0, 'a refusal from the chain must survive Jey')
+    const [record] = decisions(loop.runtime)
+    assert.equal(record?.hostDecision, 'deny', 'the row must record the refusal as the host decision')
+    assert.equal(record?.action, 'abstain', 'shadow itself added no restriction')
+    loop.runtime.close()
+  })
+
   it('does not consult anything at all while off', async () => {
     const loop = await mountLoop(jeyConfig({ mode: 'off' }))
     await runTurn(loop.ctx, loop.agent, 'note this down')
@@ -276,7 +291,13 @@ describe('Jey closed loop on a real DSH agent', () => {
     await runTurn(loop.ctx, loop.agent, 'note this down')
 
     const [record] = decisions(loop.runtime)
-    assert.equal(record?.action, 'ask', `a borrowed calibration must not deny: ${JSON.stringify(record?.reasonCodes)}`)
+    // This loop composes no approval service, so the escalation lands as a denial, and the
+    // reason codes have to make clear it was the absent channel rather than the borrowed
+    // calibration that denied. approval.test.ts covers the channel-present path.
+    assert.equal(record?.action, 'deny', JSON.stringify(record?.reasonCodes))
+    assert.ok(!record?.reasonCodes.includes('probability:conflict'),
+      'a borrowed calibration must never deny on the merits')
+    assert.ok(record?.reasonCodes.includes('approval-channel-absent'), JSON.stringify(record?.reasonCodes))
     assert.ok(record?.reasonCodes.includes('calibration-unapplied:calibration-model-requested'),
       JSON.stringify(record?.reasonCodes))
     assert.ok(record?.reasonCodes.includes('calibration-unapplied:calibration-answers-uncalibrated'),
@@ -384,13 +405,15 @@ describe('Jey closed loop on a real DSH agent', () => {
     const paused = decisions(loop.runtime).at(-1)
     assert.equal(paused?.action, 'deny')
     assert.ok(paused?.reasonCodes.some(c => c.startsWith('hard-rule:path-paused')), JSON.stringify(paused?.reasonCodes))
-    // Four decisions; only the three that dispatched produced an execution row, because
-    // the fourth was refused before the tool body ran.
+    // Four decisions and four execution rows: the refusal is recorded as what it was
+    // (`not-dispatched`) instead of being left to inference from a missing row.
     const rows = scanJournal(`${loop.lines.join('\n')}\n`).confirmed
     assert.equal(rows.filter(r => r.kind === 'decision').length, 4)
-    assert.equal(rows.filter(r => r.kind === 'execution').length, 3)
-    assert.deepEqual(rows.filter(r => r.kind === 'execution').map(r => r.kind === 'execution' && r.status),
-      ['failed', 'failed', 'failed'])
+    const executions = rows.filter(r => r.kind === 'execution')
+    assert.equal(executions.length, 4)
+    assert.deepEqual(executions.map(r => r.kind === 'execution' && r.status),
+      ['failed', 'failed', 'failed', 'not-dispatched'])
+    assert.equal((executions.at(-1) as { failureCode: string }).failureCode, 'jey-denied')
     loop.runtime.close()
   })
 

@@ -26,10 +26,11 @@
     "@deepseek-ai/dsh-session-projection": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-tools": "0.1.7-alpha.1",
+    "@deepseek-ai/dsh-user-approval": "0.1.7-alpha.1",
     "jey-contracts": "workspace:*",
     "jey-core": "workspace:*",
-    "jey-provider-typesafe": "workspace:*",
-    "jey-provider-local": "workspace:*"
+    "jey-provider-local": "workspace:*",
+    "jey-provider-typesafe": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.1",

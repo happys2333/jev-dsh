@@ -175,6 +175,21 @@ function restrict(host: HostDecision, action: DecisionAction, reasonCodes: strin
 }
 
 /**
+ * Ask when the host can actually surface the question; deny when it cannot.
+ *
+ * Handing back `ask` with no approval channel is not a neutral choice: the host's own
+ * pipeline resolves it to a denial (dsh-tools `serviceAsk`), so the restriction is the
+ * same either way and only the *record* differs. Deciding it here keeps the journal able
+ * to say "denied because nobody could be asked" instead of leaving a reader to infer the
+ * degrade from an absent approval service.
+ */
+function escalate(host: HostDecision, approvalChannel: boolean, codes: string[], checkFailed = false): PolicyResult {
+  return approvalChannel
+    ? restrict(host, 'ask', codes, checkFailed)
+    : restrict(host, 'deny', [...codes, 'approval-channel-absent'], checkFailed)
+}
+
+/**
  * Table 2: where a failure happened decides what happens next. Different failure
  * kinds deliberately get different treatments; a single catch-all would either
  * make the layer unsafe (fail open under enforce) or useless (fail closed in shadow).
@@ -210,12 +225,10 @@ function decide(input: {
 
   // §4.3: a missing or failed required execution check is never treated as a pass.
   if (unusable.length > 0) {
-    return restrict(host, approvalChannel ? 'ask' : 'deny',
+    return escalate(host, approvalChannel,
       ['required-check-unavailable', ...unusable.map(id => `unusable:${id}`)], true)
   }
-  if (!snapshotFresh) {
-    return restrict(host, approvalChannel ? 'ask' : 'deny', ['stale-snapshot'], true)
-  }
+  if (!snapshotFresh) return escalate(host, approvalChannel, ['stale-snapshot'], true)
 
   const conflict = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.conflictsWithConstraint)
   const goal = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.advancesGoal)
@@ -226,10 +239,11 @@ function decide(input: {
   }
   // An uncalibrated score may escalate but may not deny on its own (§6.4, §14).
   if (conflict !== null && conflict >= thresholds.conflictAskAtOrAbove) {
-    return restrict(host, 'ask', calibrationAvailable ? ['probability:conflict'] : ['conflict-signal-uncalibrated'])
+    return escalate(host, approvalChannel,
+      calibrationAvailable ? ['probability:conflict'] : ['conflict-signal-uncalibrated'])
   }
-  if (goal !== null && goal < thresholds.goalBelow) return restrict(host, 'ask', ['probability:goal-off-track'])
-  if (evidence !== null && evidence < thresholds.evidenceBelow) return restrict(host, 'ask', ['insufficient-evidence'])
+  if (goal !== null && goal < thresholds.goalBelow) return escalate(host, approvalChannel, ['probability:goal-off-track'])
+  if (evidence !== null && evidence < thresholds.evidenceBelow) return escalate(host, approvalChannel, ['insufficient-evidence'])
 
   // Nothing to add. Note there is no `allow` action to return: the host keeps its own decision.
   return restrict(host, 'abstain', ['no-jey-restriction'])
