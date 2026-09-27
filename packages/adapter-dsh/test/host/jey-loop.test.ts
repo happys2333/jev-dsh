@@ -40,6 +40,7 @@ function jeyConfig(overrides: Record<string, unknown> = {}): Record<string, unkn
 interface Loop {
   readonly ctx: Context
   readonly agent: Agent
+  readonly agents: readonly Agent[]
   readonly runtime: JeyRuntime
   readonly provider: MockProvider
   readonly lines: string[]
@@ -50,6 +51,8 @@ interface LoopOptions {
   readonly repeat?: boolean
   /** Make the tool body record the call and then fail. */
   readonly failTool?: boolean
+  /** Session ids to create; the first one is returned as `agent` too. */
+  readonly sessions?: readonly string[]
 }
 
 async function mountLoop(
@@ -69,8 +72,11 @@ async function mountLoop(
   ctx.tools.register(probeTool)
   const runtime = mountJey(ctx, config, { provider, audit })
   const harness = await mountAgentLoopTestHarness(ctx)
-  const agent = await harness.create(SessionId('jey-loop-agent'), { provider: route, model: 'loop-model' })
-  return { ctx, agent, runtime, provider, lines }
+  const agents: Agent[] = []
+  for (const session of options.sessions ?? ['jey-loop-agent']) {
+    agents.push(await harness.create(SessionId(session), { provider: route, model: 'loop-model' }))
+  }
+  return { ctx, agent: agents[0] as Agent, agents, runtime, provider, lines }
 }
 
 function nextIdle(ctx: Context, agent: Agent): Promise<void> {
@@ -131,6 +137,35 @@ describe('Jey closed loop on a real DSH agent', () => {
       assert.ok(e.errors.some(x => x.code === 'ENFORCE_WITH_MOCK'), JSON.stringify(e.errors))
       return true
     })
+  })
+
+  it('keeps two sessions from sharing a goal, a history or a task version', async () => {
+    // R03 was exactly this: one plugin-wide `goalText`, so whichever agent spoke last
+    // became the other one's task. Everything below goes through real turns.
+    const loop = await mountLoop(jeyConfig(), undefined, {
+      repeat: true,
+      sessions: ['session-A', 'session-B'],
+    })
+    const [agentA, agentB] = [loop.agents[0] as Agent, loop.agents[1] as Agent]
+    await runTurn(loop.ctx, agentA, 'session A goal: find the failing test')
+    await runTurn(loop.ctx, agentB, 'session B goal: rewrite the release notes')
+
+    const goals = loop.provider.seen.map(r => (r.state as { call: { goal: string | null } }).call.goal)
+    assert.deepEqual(goals, ['session A goal: find the failing test', 'session B goal: rewrite the release notes'],
+      'each request must carry its own session goal, not whoever spoke last')
+    assert.equal(loop.provider.seen[0]?.snapshot.sessionId, 'session-A')
+    assert.equal(loop.provider.seen[1]?.snapshot.sessionId, 'session-B')
+    // B speaking must not advance A's task revision counter, or the two share an envelope.
+    assert.equal(loop.provider.seen[0]?.snapshot.taskVersion, 1)
+    assert.equal(loop.provider.seen[1]?.snapshot.taskVersion, 1)
+    // Requirements are still unknown: nothing here parses prose into a trusted limit.
+    const constraintsOf = (index: number): readonly unknown[] => {
+      const state = loop.provider.seen[index]?.state as { call?: { constraints?: readonly unknown[] } } | undefined
+      return state?.call?.constraints ?? ['<missing>']
+    }
+    assert.deepEqual(constraintsOf(0), [], 'no structured policy source means no claimed constraints')
+    assert.equal(constraintsOf(1).length, 0)
+    loop.runtime.close()
   })
 
   it('pauses a path after three real failures and blocks the fourth before dispatch', async () => {

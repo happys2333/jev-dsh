@@ -6,9 +6,9 @@ import type {
   DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, QuestionOutcome, SnapshotRef,
 } from 'jey-contracts'
 import {
-  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, assessmentState, buildSnapshot, checkEgress,
+  AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assessmentState, buildSnapshot, checkEgress,
   compileAssessment, evaluatePolicy, fitToBudget, loadConfig, mintAuditId, observeCall, pausedPath, sha256, shouldBlockDispatch,
-  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type StateSection,
+  type AuditEvent, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type StateSection, type TaskConstraint,
 } from 'jey-core'
 import { MockProvider } from './providers/mock.ts'
 import { ExpectedProvider } from './identity.ts'
@@ -42,9 +42,17 @@ function fromPreTool(decision: { readonly kind: 'allow' | 'deny' | 'cancel' | 'a
   return { kind: 'allow' }
 }
 
-/** Collect text blocks out of a host message without assuming its exact shape. */
-function textOf(value: unknown, limit = 400): string {
+/** How much of one user message is carried as evidence before it is reported as cut. */
+const USER_TEXT_LIMIT = 4000
+
+/**
+ * Collect text blocks out of a host message without assuming its exact shape, and say
+ * whether any of it was lost. A silent `slice` here once dropped a constraint that sat
+ * at the end of a long message while the decision went out as if nothing were missing.
+ */
+function textOf(value: unknown, limit = USER_TEXT_LIMIT): { readonly text: string; readonly truncated: boolean } {
   const parts: string[] = []
+  let oversized = false
   const walk = (node: unknown): void => {
     if (parts.join(' ').length >= limit || node === null || typeof node !== 'object') return
     if (Array.isArray(node)) {
@@ -56,7 +64,9 @@ function textOf(value: unknown, limit = 400): string {
     Object.values(record).forEach(walk)
   }
   walk(value)
-  return parts.join(' ').slice(0, limit)
+  const joined = parts.join(' ')
+  oversized = joined.length > limit
+  return { text: joined.slice(0, limit), truncated: oversized }
 }
 
 /**
@@ -75,9 +85,18 @@ interface Executable {
   readonly rootCallId?: string | undefined
 }
 
+/**
+ * The one expression that decides which scope an execution belongs to. Scope state, the
+ * progress path key and the snapshot identity all go through it, so the store a pause is
+ * written to and the store a denial reads from cannot end up being different things.
+ */
+function scopeKeyOf(exec: { readonly agent?: { readonly id: string } | undefined }): string {
+  return exec.agent?.id ?? 'agentless'
+}
+
 function pathIdentity(exec: Executable): PathIdentity {
   return {
-    scopeKey: exec.agent?.id ?? 'agentless',
+    scopeKey: scopeKeyOf(exec),
     toolName: exec.name,
     normalizedArguments: exec.arguments as JsonValue,
   }
@@ -160,14 +179,58 @@ export interface JeyRuntime {
   close(): void
 }
 
-/** One plugin instance is one generation, so a hot-swap invalidates everything in flight. */
-let generationCounter = 0
+/** Collected facts about what one scope is trying to do, and how often it changed. */
+interface ScopeTask {
+  readonly initialGoal: string | null
+  readonly currentSubgoal: string | null
+  /**
+   * Trusted, attributable limits only. Nothing parses user prose into a constraint here:
+   * a model-readable summary is not an enforceable rule, and a guessed one is worse than
+   * an empty list marked `requirementsUnavailable`. DSH surfaces no structured policy
+   * source at present, so this stays empty and that flag stays true.
+   */
+  readonly constraints: readonly TaskConstraint[]
+  readonly latestRevisionEvent: string | null
+  readonly version: number
+  readonly requirementsUnavailable: boolean
+}
+
+/**
+ * Everything that belongs to one session-and-agent, kept apart so two of them running at
+ * once cannot read each other's goal, history or failure counts.
+ *
+ * DSH's `Agent` is `{ id: SessionId }` — an agent handle *is* session-backed — so one key
+ * serves both roles here, and there is no parent-session field on an execution to derive
+ * a shared budget from. That limitation is recorded in docs, not worked around by
+ * guessing at a lineage the host does not expose.
+ */
+interface ScopeState {
+  position: { readonly turn: number; readonly step: number }
+  sequence: number
+  task: ScopeTask
+  readonly conversation: { readonly role: string; readonly text: string }[]
+  readonly recentResults: { readonly toolName: string; readonly status: string }[]
+}
+
+const newScope = (): ScopeState => ({
+  position: { turn: 0, step: 0 },
+  sequence: 0,
+  task: {
+    initialGoal: null, currentSubgoal: null, constraints: [], latestRevisionEvent: null,
+    version: 0, requirementsUnavailable: true,
+  },
+  conversation: [],
+  recentResults: [],
+})
 
 /**
  * Build the decision machinery and attach it to a live DSH context. Exported separately
  * from {@link apply} so a host test can supply a provider and a captured audit sink;
  * `apply` itself cannot, because cordis only ever passes it the config block.
  */
+/** One plugin instance is one generation, so a hot-swap invalidates everything in flight. */
+let generationCounter = 0
+
 export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRuntime {
   const now = deps.now ?? (() => Date.now())
   const capabilities = (): HostCapabilities => ({
@@ -205,18 +268,25 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   })
 
   const records: AuditEvent[] = []
-  let sequence = 0
-  let position = { turn: 0, step: 0 }
-  let goalText: string | null = null
-  let goalSeen = false
+  /**
+   * One entry per session-and-agent. Sharing these across scopes was R03: with two
+   * agents live, whichever spoke last became the other one's goal.
+   */
+  const scopes = new Map<string, ScopeState>()
   // Deliberately global: any advertised-tool change anywhere raises the digest, so an
   // unrelated agent's catalog change can only ever invalidate a pending decision, never
   // wrongly confirm one. Per-scope digests need a host identity we cannot see at assemble
   // time; that is recorded as a known gap rather than papered over.
   let catalogDigest = `sha256:${sha256('[]')}`
-  const conversation: { readonly role: string; readonly text: string }[] = []
-  const recentResults: { readonly toolName: string; readonly status: string }[] = []
   const HISTORY_CAP = 40
+
+  const scopeFor = (key: string): ScopeState => {
+    const known = scopes.get(key)
+    if (known !== undefined) return known
+    const fresh = newScope()
+    scopes.set(key, fresh)
+    return fresh
+  }
 
   const runtime = {
     config,
@@ -231,41 +301,47 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   }
 
   function snapshot(args: {
-    readonly agentId: string
+    readonly scopeKey: string
     readonly toolName: string
     readonly arguments: JsonValue
     readonly approvalChannel: boolean
   }): { readonly ref: SnapshotRef; readonly request: DecisionRequest; readonly fields: readonly string[]; readonly truncated: readonly string[]; readonly neededBytes: number | null } {
+    const scope = scopeFor(args.scopeKey)
+    // Only non-revoked constraints may inform a judgement about the user's limits.
+    const active = activeConstraints(scope.task).map(c => c.text)
     // §5.2 order: hard policy and this call first, then recent results, then conversation.
     // Cutting happens at JSON boundaries and every removal is recorded on the snapshot.
     const sections: StateSection[] = [
-      { id: 'policy', kind: 'policy', value: { mode: config.mode, constraints: [] as string[] } },
-      { id: 'call', kind: 'current-call', value: assessmentState({ toolName: args.toolName, frozenArguments: args.arguments, goal: goalText, constraints: [] }) },
-      { id: 'results', kind: 'recent-result', value: recentResults.slice(-5) },
-      { id: 'chat', kind: 'conversation', value: conversation.slice(-12) },
+      { id: 'policy', kind: 'policy', value: { mode: config.mode, constraints: active } },
+      { id: 'call', kind: 'current-call', value: assessmentState({ toolName: args.toolName, frozenArguments: args.arguments, goal: scope.task.currentSubgoal, constraints: active }) },
+      { id: 'results', kind: 'recent-result', value: scope.recentResults.slice(-5) },
+      { id: 'chat', kind: 'conversation', value: scope.conversation.slice(-12) },
     ]
     const fit = fitToBudget(sections, config.limits.maxStateBytes)
     const built = buildSnapshot({
-      sessionId: args.agentId,
-      agentId: args.agentId,
-      turn: position.turn,
-      step: position.step,
+      // DSH's agent handle is session-backed (`Agent.id: SessionId`), so one key serves
+      // both fields for this host version. A shared parent budget would need a parent
+      // link the execution does not carry; recorded as a gap, not guessed at.
+      sessionId: args.scopeKey,
+      agentId: args.scopeKey,
+      turn: scope.position.turn,
+      step: scope.position.step,
       generation,
       policyVersion,
-      taskVersion: goalSeen ? 1 : 0,
+      taskVersion: scope.task.version,
       task: {
-        initialGoal: goalText,
-        currentSubgoal: goalText,
-        constraints: [],
-        latestRevisionEvent: null,
-        // No visible user requirement is recorded as unknown, never as "the user set no
+        initialGoal: scope.task.initialGoal,
+        currentSubgoal: scope.task.currentSubgoal,
+        constraints: scope.task.constraints,
+        latestRevisionEvent: scope.task.latestRevisionEvent,
+        // Requirements that never arrived are marked unknown, never "the user set no
         // limits" (spec 5.1).
-        requirementsUnavailable: !goalSeen,
+        requirementsUnavailable: scope.task.requirementsUnavailable,
       },
       catalog: [{ name: args.toolName, schemaDigest: catalogDigest }],
-      call: { toolName: args.toolName, frozenArguments: args.arguments, executionToken: args.agentId, observationSequence: sequence },
-      recentResults: recentResults.slice(-5),
-      observationSequence: sequence,
+      call: { toolName: args.toolName, frozenArguments: args.arguments, executionToken: args.scopeKey, observationSequence: scope.sequence },
+      recentResults: scope.recentResults.slice(-5),
+      observationSequence: scope.sequence,
       truncated: fit.ok ? fit.omissions.map(o => o.path) : [`insufficient:${fit.code}`],
     })
     const request: DecisionRequest = {
@@ -341,19 +417,35 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     return result
   }
 
+  /**
+   * The user input that will actually reach the model for this step is whatever
+   * {@link next} admits, not the last thing that appeared in the inbox. Recording the
+   * admitted set is what makes a second-turn "continue" keep the first turn's goal.
+   */
   const onPreStep: Events['agent/pre-step'] = async (payload, next) => {
-    position = { turn: payload.turn, step: payload.step }
-    sequence += 1
-    return next()
+    const decision = await next()
+    const scope = scopeFor(payload.agent.id)
+    scope.position = { turn: payload.turn, step: payload.step }
+    scope.sequence += 1
+    if (decision.kind !== 'enter') return decision
+    for (const message of decision.messages) reviseTask(scope, message, payload.turn, payload.step)
+    return decision
   }
 
-  const onInbox: Events['agent/inbox/inserted'] = payload => {
-    const text = textOf(payload.message)
-    if (text.length > 0) {
-      goalText = text
-      goalSeen = true
-      conversation.push({ role: 'user', text })
-      if (conversation.length > HISTORY_CAP) conversation.shift()
+  function reviseTask(scope: ScopeState, message: unknown, turn: number, step: number): void {
+    const read = textOf(message, USER_TEXT_LIMIT)
+    if (read.text.length === 0) return
+    scope.conversation.push({ role: 'user', text: read.text })
+    if (scope.conversation.length > HISTORY_CAP) scope.conversation.shift()
+    scope.task = {
+      initialGoal: scope.task.initialGoal ?? read.text,
+      currentSubgoal: read.text,
+      constraints: scope.task.constraints,
+      latestRevisionEvent: `turn:${turn}/step:${step}${read.truncated ? ':truncated' : ''}`,
+      version: scope.task.version + 1,
+      // A cut message or an absent structured source means the layer cannot see the
+      // user's limits. That is reported as unknown, never as "no limits were set".
+      requirementsUnavailable: read.truncated || scope.task.constraints.length === 0,
     }
   }
 
@@ -361,10 +453,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     const host = fromPreTool(await next())
     if (config.mode === 'off' || exec.signal.aborted) return toPreTool(host)
 
-    const agentId = exec.agent?.id ?? 'agentless'
+    const scopeKey = scopeKeyOf(exec)
     const approvalChannel = exec.agent !== undefined && ctx.get('approval') !== undefined
     const { ref, request, fields, truncated, neededBytes } = snapshot({
-      agentId,
+      scopeKey,
       toolName: exec.name,
       arguments: exec.arguments as JsonValue,
       approvalChannel,
@@ -500,9 +592,10 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   })
 
   const resultOff = ctx.on('tools/result', (exec, result) => {
-    sequence += 1
-    recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })
-    if (recentResults.length > HISTORY_CAP) recentResults.shift()
+    const scope = scopeFor(scopeKeyOf(exec))
+    scope.sequence += 1
+    scope.recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })
+    if (scope.recentResults.length > HISTORY_CAP) scope.recentResults.shift()
     runtime.progress = observeCall(runtime.progress, {
       ...pathIdentity(exec),
       status: result.isError ? 'failure' : 'success',
@@ -515,7 +608,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
       // Likewise nothing here identifies a status poll; a repeated failing call counts
       // as a repeated failing call.
       isPoll: false,
-      observationSequence: sequence,
+      observationSequence: scope.sequence,
     }, {
       maxIdenticalFailures: config.limits.maxIdenticalFailures,
       pollBudget: config.limits.pollBudget,
@@ -525,7 +618,6 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   const disposers = [
     ctx.on('system-prompt/assemble', onAssemble),
     ctx.on('agent/pre-step', onPreStep),
-    ctx.on('agent/inbox/inserted', onInbox),
     ctx.on('tools/pre-execute', onPreExecute),
   ]
 
