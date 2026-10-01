@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import type { DecisionResponse, ExecutionOutcome, SnapshotRef } from 'jey-contracts'
+import type { DecisionResponse, ExecutionOutcome, SnapshotRef } from 'jev-contracts'
 import {
   AuditJournal,
   AuditSchemaError,

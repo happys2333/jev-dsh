@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionRequest, SnapshotRef } from 'jey-contracts'
+import type { DecisionRequest, SnapshotRef } from 'jev-contracts'
 import { EMPTY_BUDGET, keyOf, refundBudget, reserveBudget, spent, type BudgetLedger } from '../../src/index.ts'
 
 const LIMITS = { perTurnCalls: 3, perSessionCalls: 5 }

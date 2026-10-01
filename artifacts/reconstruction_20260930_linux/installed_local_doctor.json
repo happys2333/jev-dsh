@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1",
+  "verdict": "READY",
+  "reasons": [],
+  "config": {
+    "accepted": true,
+    "mode": "enforce",
+    "providerKind": "local",
+    "egressMode": "local-only",
+    "features": {
+      "toolAssessment": true,
+      "toolRelevance": false,
+      "presentationFilter": false,
+      "approvalRequests": false,
+      "modelRouting": false
+    },
+    "calibration": {
+      "configured": false,
+      "appliesTo": null
+    },
+    "errors": []
+  },
+  "credentials": [
+    {
+      "reference": "env:JEV_LOCAL_TOKEN",
+      "configured": true
+    }
+  ],
+  "compatibility": {
+    "pinned": "0.1.7-alpha.1",
+    "installed": "0.1.7-alpha.1",
+    "verdict": "MATCH"
+  },
+  "approval": {
+    "composed": true,
+    "consequence": "ask \u4f1a\u9001\u8fdb\u5bbf\u4e3b\u7684\u5ba1\u6279\u63a5\u7f1d\uff0c\u7ed3\u8bba\u4ece approval/asked + approval/decided \u4e8b\u4ef6\u5bf9\u8bfb\u56de"
+  },
+  "provider": {
+    "probed": true,
+    "reason": "capabilities \u63a2\u6d4b\u5df2\u6267\u884c",
+    "inference": "PROBED \u2014 \u670d\u52a1\u81ea\u62a5\u8eab\u4efd\u89c1 identity",
+    "identity": "local:bartowski/Qwen_Qwen3.5-4B-GGUF@4168f45a16a1290d65a4ec0fa312ae917a4c15d6#Qwen_Qwen3.5-4B-Q4_K_M.gguf@4168f45a16a1#13c16f426047"
+  },
+  "journal": {
+    "present": true,
+    "mounted": true,
+    "mountRow": "mounted:mode=enforce provider=local egress=local-only",
+    "decisions": 0,
+    "actions": {},
+    "executions": {},
+    "isolated": 0,
+    "lastErrors": []
+  },
+  "scope": "Installed DSH mounts local-enforce with real model identity/readiness. No generative host turn or UI approval."
+}

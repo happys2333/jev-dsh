@@ -7,7 +7,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionRequest, ErrorCode, SnapshotRef } from 'jey-contracts'
+import type { DecisionRequest, ErrorCode, SnapshotRef } from 'jev-contracts'
 import { LocalError, LocalProvider, isLoopbackEndpoint } from '../../src/index.ts'
 
 const TOKEN = 'local-random-token'
@@ -267,4 +267,35 @@ test('capabilities are fetched once and can be refreshed on request', async () =
   assert.equal(calls.length, 1)
   await p.capabilities({ refresh: true })
   assert.equal(calls.length, 2)
+})
+
+test('WIRE-08 local streaming body is bounded and cancelled', async () => {
+  let pulls = 0
+  let cancelled = false
+  const p = local(() => new Response(new ReadableStream<Uint8Array>({
+    pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(65_536)) },
+    cancel() { cancelled = true },
+  })))
+  assert.equal((await failure(p)).code, 'INVALID_RESPONSE')
+  assert.ok(pulls < 40, `consumed ${pulls} chunks`)
+  assert.equal(cancelled, true)
+})
+
+test('local deadline stays active while the response body is stalled', {timeout: 2000}, async () => {
+  let cancelled = false
+  const p = local(() => new Response(new ReadableStream<Uint8Array>({cancel() { cancelled = true }})))
+  await assert.rejects(p.evaluate(request({budget: {maxElapsedMs: 20, maxInputBytes: 32768}}), {signal: new AbortController().signal}),
+    (error: unknown) => error instanceof LocalError && error.code === 'TIMEOUT')
+  assert.equal(cancelled, true)
+})
+
+test('local caller cancellation still works after headers', {timeout: 2000}, async () => {
+  let cancelled = false
+  const controller = new AbortController()
+  const p = local(() => {
+    setTimeout(() => controller.abort(), 10)
+    return new Response(new ReadableStream<Uint8Array>({cancel() { cancelled = true }}))
+  })
+  assert.equal((await failure(p, controller.signal)).code, 'CANCELLED')
+  assert.equal(cancelled, true)
 })

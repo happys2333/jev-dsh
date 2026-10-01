@@ -52,6 +52,6 @@ test('the local example pins the model the service is built to load', () => {
   // An origin the egress check would refuse makes the whole example a lie about what
   // it can reach, so the endpoint has to appear in the allowlist verbatim.
   assert.deepEqual([...(config.egress.allowedOrigins ?? [])], [config.provider.local.endpoint])
-  assert.ok(config.limits.deadlineMs > 1500,
-    'the CPU default budget is a cloud number; an example that uses it would always time out')
+  assert.equal(config.limits.deadlineMs, 60000,
+    'the prior Linux run exceeded ten seconds; keep the bounded portable CPU budget')
 })

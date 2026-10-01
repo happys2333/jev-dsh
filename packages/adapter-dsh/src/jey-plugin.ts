@@ -5,19 +5,19 @@ import type { Context, Events } from '@deepseek-ai/cordis'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type {
   DecisionAction, DecisionProvider, DecisionRequest, ErrorCode, HostDecision, JsonValue, PolicyDecision, ProviderCapabilities, QuestionOutcome, SnapshotRef,
-} from 'jey-contracts'
+} from 'jev-contracts'
 import {
   AuditJournal, DecisionCoordinator, EMPTY_PROGRESS, activeConstraints, assertSupported, assessmentState, buildSnapshot, calibrationApplies, checkEgress,
   compileAssessment, evaluatePolicy, fitToBudget, isErrorCode, isFresh, loadConfig, mintAuditId, observeCall, pausedPath, publicSnapshot, recordExecution, sha256, shouldBlockDispatch,
   type AuditEvent, type EmitResult, type HostCapabilities, type JeyConfig, type LineSink, type PathIdentity, type ProgressStore, type SnapshotFacts, type StateSection, type TaskConstraint,
-} from 'jey-core'
-import { MockProvider } from 'jey-provider-mock'
+} from 'jev-core'
+import { MockProvider } from 'jev-provider-mock'
 import { ExpectedProvider } from './identity.ts'
-import { TypesafeProvider } from 'jey-provider-typesafe'
-import { LocalProvider } from 'jey-provider-local'
+import { TypesafeProvider } from 'jev-provider-typesafe'
+import { LocalProvider } from 'jev-provider-local'
 
 /**
- * Jey as a DSH plugin: the only place in this repository that imports the host.
+ * Jev as a DSH plugin: the only place in this repository that imports the host.
  *
  * Ordering follows the host contract rather than wishful thinking. `tools/pre-execute`
  * is a waterfall, so the host's own decision is whatever `next()` returns and our action
@@ -26,7 +26,7 @@ import { LocalProvider } from 'jey-provider-local'
  * something a later waterfall listener cannot talk past.
  */
 
-/** DSH's `PreToolDecision` and Jey's `HostDecision` are the same four shapes. */
+/** DSH's `PreToolDecision` and Jev's `HostDecision` are the same four shapes. */
 function toPreTool(decision: HostDecision) {
   switch (decision.kind) {
     case 'allow': return { kind: 'allow' } as const
@@ -46,8 +46,8 @@ function fromPreTool(decision: { readonly kind: 'allow' | 'deny' | 'cancel' | 'a
 /**
  * The row for a call that will not dispatch, decided from what we handed back.
  *
- * `not-dispatched` is a refusal Jey raised; `denied-by-host` is the host refusing a call
- * Jey added nothing to. Both used to be recorded by *absence*, which a reader cannot tell
+ * `not-dispatched` is a refusal Jev raised; `denied-by-host` is the host refusing a call
+ * Jev added nothing to. Both used to be recorded by *absence*, which a reader cannot tell
  * apart from an execution row that was never written.
  */
 export function refusalOf(
@@ -198,7 +198,7 @@ const stderrSink: LineSink = {
  * anything. The path comes from the environment, never from a model-visible setting.
  */
 function defaultSink(config: JeyConfig): LineSink {
-  const path = process.env.JEY_AUDIT_PATH
+  const path = (process.env.JEV_AUDIT_PATH ?? process.env.JEY_AUDIT_PATH)
   if (path === undefined || path === '') return stderrSink
   return fileLineSink({ path, maxFileBytes: config.audit.maxFileBytes })
 }
@@ -329,7 +329,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   // Argument digests may only be published where a key makes them non-reversible; without
   // one, `publicSnapshot` drops them. The key comes from the environment and never from
   // model-visible config, because a key the observed thing can set is not a key.
-  const auditKey = process.env.JEY_AUDIT_KEY ?? null
+  const auditKey = process.env.JEV_AUDIT_KEY ?? process.env.JEY_AUDIT_KEY ?? null
   /**
    * One entry per session-and-agent. Sharing these across scopes was R03: with two
    * agents live, whichever spoke last became the other one's goal.
@@ -633,7 +633,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
     if (config.features.toolAssessment !== true) return toPreTool(host)
 
     const scopeKey = scopeKeyOf(exec)
-    // Two halves make a channel Jey may use: the host must expose an approval service, and
+    // Two halves make a channel Jev may use: the host must expose an approval service, and
     // the operator must have switched approval requests on. The flag used to be a load-time
     // gate only, so `approvalRequests: false` still produced prompts on a capable host.
     // With it off the escalation degrades to a denial, and the reason says
@@ -865,7 +865,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   /**
    * Approval outcomes, keyed by the exact call the host put the question about.
    *
-   * Jey never runs an approval channel of its own: it returns `ask` and the host's tools
+   * Jev never runs an approval channel of its own: it returns `ask` and the host's tools
    * pipeline resolves it through `ctx.get('approval')`. `tools/result` fires either way,
    * so without this a human "no" and a tool crash land as the same row, and §11 asks for
    * what actually happened. The host's durable `approval/asked` + `approval/decided` pair
@@ -1054,7 +1054,7 @@ export function providerFor(raw: unknown): DecisionProvider {
   if (provider.kind === 'local') {
     const local = provider.local
     if (local === undefined) throw new Error('jey: provider.kind=local without a local block')
-    // External ownership only: Jey never launches, restarts, or downloads anything to
+    // External ownership only: Jev never launches, restarts, or downloads anything to
     // satisfy a decision. An unreachable service answers LOCAL_NOT_READY and the policy
     // layer escalates, rather than the plugin quietly failing open. And the checkpoint it
     // names has to be the one the operator pinned, checked before any state is sent.
@@ -1075,9 +1075,15 @@ export function providerFor(raw: unknown): DecisionProvider {
   throw new Error(`jey: no provider implementation for '${provider?.kind}'`)
 }
 
-export const name = 'jey'
+export const name = 'jev'
 
 /** Only `tools` is required; the approval seam is read opportunistically, as the host itself does. */
 export const inject = ['tools']
 
 export const jeyPlugin = { name, inject, apply }
+
+/** Corrected public spelling; retained legacy exports stay compatible. */
+export const jevPlugin = jeyPlugin
+export const mountJev = mountJey
+export type JevMountDeps = JeyMountDeps
+export type JevRuntime = JeyRuntime

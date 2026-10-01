@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, QuestionOutcome, SnapshotRef } from 'jey-contracts'
+import type { DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, QuestionOutcome, SnapshotRef } from 'jev-contracts'
 import { DecisionCoordinator, IllegalTransition, Run, canTransition, isClosed, keyOf, spent, type CoordinatorLimits, type CoordinatorOutcome } from '../../src/index.ts'
 
 const IDS = { goal: 'advances-goal', evidence: 'evidence-sufficient', conflict: 'conflicts-with-constraint' }
@@ -150,10 +150,16 @@ test('a saturated coordinator refuses admission synchronously and never calls th
 test('a queue wait that eats the deadline times out before the provider is reached', async () => {
   const gate = deferred()
   const provider = new ScriptedProvider(gate)
-  const c = coordinator(provider, { maxConcurrent: 1, maxQueue: 2, deadlineMs: 5 })
+  let now = 0
+  const c = new DecisionCoordinator(provider, {
+    limits: { maxConcurrent: 1, maxQueue: 2, deadlineMs: 200, perTurnCalls: 64, perSessionCalls: 512, maxQueuePerSession: 2 },
+    now: () => now,
+  })
   const first = c.submit(request('a'), { signal: new AbortController().signal })
   const queued = c.submit(request('b'), { signal: new AbortController().signal })
-  await new Promise(r => setTimeout(r, 30))
+  // Advance the injected clock before releasing the slot. Real 5 ms timers can
+  // fire a millisecond apart, legitimately starting b before its queue deadline.
+  now = 201
   gate.resolve(response(request('a')))
   await first
   assert.deepEqual(await queued, { kind: 'timed-out', stage: 'queue' })

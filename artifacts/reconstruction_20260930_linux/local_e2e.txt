@@ -1,0 +1,14 @@
+
+> jev-provider-local@0.0.0 test:e2e:local /workspace/scratch/77623b5f7312/jev-dsh/packages/provider-local
+> node --test "test/e2e/*.test.ts"
+
+✔ the loopback service answers the real execution-gate questions (15795.218019ms)
+✔ a cancelled request is reported as cancelled, not as an answer (9446.477697ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 30448.82453

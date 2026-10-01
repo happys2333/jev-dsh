@@ -1,0 +1,42 @@
+{
+  "passed": true,
+  "scope": "same-build install/reinstall/uninstall/restore of all 7 packages, synthetic unrelated plugin/session/config preservation; NOT version upgrade or real host-session migration",
+  "archiveHashes": [
+    {
+      "name": "jev-adapter-dsh",
+      "sha256": "2735920b2d68bccc247c00db73c8bda0fde0da55e403b957b5facc0b2eca9ad4"
+    },
+    {
+      "name": "jev-adapter-mcp",
+      "sha256": "a0f16e03c91debdf6601fe2f35494d53cc29d46174f9f3cece871cc7d6538998"
+    },
+    {
+      "name": "jev-contracts",
+      "sha256": "6fe6ca7e55d23dacfafaa3be17b13338a967e9db6e1c0b92fed163c2ec1b9aa8"
+    },
+    {
+      "name": "jev-core",
+      "sha256": "ed497dc96853662d540d3db23bb65974040abb69bb201d4d44fcc19b176019f1"
+    },
+    {
+      "name": "jev-provider-local",
+      "sha256": "84af4f12ff4c3d191d5e46b1e85bb381585d59153c01715620a205f03de35379"
+    },
+    {
+      "name": "jev-provider-mock",
+      "sha256": "5ccf6a8350e1551749afe7ac889b0b48d03ca11c6a3fa42ef1c3171abbe320cf"
+    },
+    {
+      "name": "jev-provider-typesafe",
+      "sha256": "165e4bb6aa561df6959b07b8527b56893ee4bdb52135fb2ce7092e38c7fb8bb2"
+    }
+  ],
+  "checks": [
+    "initial-install",
+    "idempotent-reinstall",
+    "owned-package-uninstall",
+    "same-build-restore",
+    "unrelated-plugin-preserved",
+    "synthetic-session-and-config-byte-identical"
+  ]
+}

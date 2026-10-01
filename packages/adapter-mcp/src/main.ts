@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { DecisionCoordinator, loadConfig, type HostCapabilities } from 'jey-core'
+import { DecisionCoordinator, loadConfig, type HostCapabilities } from 'jev-core'
 import { providerFor } from './provider.ts'
 import { createJeyServer } from './server.ts'
 import type { McpRuntime } from './tools.ts'
@@ -18,7 +18,7 @@ import type { McpRuntime } from './tools.ts'
 /**
  * What this host can do, stated as facts rather than assumptions: an MCP client is not a DSH
  * agent, there is no approval seam to ask through, and there is nothing here whose tool
- * visibility Jey could restrict. Each capability the config asks for that the host cannot back
+ * visibility Jev could restrict. Each capability the config asks for that the host cannot back
  * is refused at load, the same way the DSH adapter refuses it.
  */
 export const MCP_HOST_CAPABILITIES: HostCapabilities = {
@@ -59,8 +59,8 @@ export function runtimeFrom(configPath: string): McpRuntime {
 }
 
 export async function serve(argv: readonly string[]): Promise<void> {
-  const configPath = flag(argv, '--config') ?? process.env.JEY_CONFIG
-  if (configPath === undefined) throw new Error('--config <jey config json> is required (or JEY_CONFIG)')
+  const configPath = flag(argv, '--config') ?? (process.env.JEV_CONFIG ?? process.env.JEY_CONFIG)
+  if (configPath === undefined) throw new Error('--config <jey config json> is required (or JEV_CONFIG; JEY_CONFIG is a legacy alias)')
   const runtime = runtimeFrom(configPath)
   const server = createJeyServer(runtime)
   await server.connect(new StdioServerTransport())

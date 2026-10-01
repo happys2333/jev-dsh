@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as fc from 'fast-check'
-import type { DecisionAction, HostDecision, Mode, ProviderKind, Purpose, QuestionOutcome } from 'jey-contracts'
+import type { DecisionAction, HostDecision, Mode, ProviderKind, Purpose, QuestionOutcome } from 'jev-contracts'
 import { combineHostAndJey, evaluatePolicy, RESTRICTION_RANK, REQUIRED_QUESTION_IDS, checkEgress, type EgressConfig } from '../../src/index.ts'
 
 const arbProviderKind: fc.Arbitrary<ProviderKind> = fc.constantFrom('local', 'typesafe', 'mock')
@@ -35,7 +35,7 @@ const arbOutcomes: fc.Arbitrary<QuestionOutcome[]> = fc.tuple(
   arbOutcome(REQUIRED_QUESTION_IDS.conflictsWithConstraint),
 ).chain(t => fc.option(fc.constant(t), { nil: [] }))
 
-test('property: Jey can never loosen the host decision', () => {
+test('property: Jev can never loosen the host decision', () => {
   fc.assert(fc.property(arbHost, arbAction, (host, action) => {
     const out = combineHostAndJey(host, action)
     return RESTRICTION_RANK[out.kind] >= RESTRICTION_RANK[host.kind]

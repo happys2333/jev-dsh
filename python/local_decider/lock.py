@@ -18,7 +18,7 @@ SCHEMA_VERSION = "1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 GIT_SHA = re.compile(r"[0-9a-f]{40}")
 
-DEFAULT_LOCK = Path(__file__).resolve().parent.parent / "models.lock.json"
+DEFAULT_LOCK = Path(__file__).resolve().parent / "models.lock.json"
 
 
 @dataclass(frozen=True)
@@ -83,10 +83,10 @@ class Lock:
 def default_lock_path() -> Path:
     """``JEY_MODEL_LOCK`` lets a host spawn the service against a lock it chose.
 
-    The repository-relative file is the fallback, so ``python -m local_decider.service``
+    The bundled package file is the fallback, so ``python -m local_decider.service``
     keeps working from a checkout without any configuration.
     """
-    override = os.environ.get("JEY_MODEL_LOCK")
+    override = os.environ.get("JEV_MODEL_LOCK", os.environ.get("JEY_MODEL_LOCK"))
     return Path(override) if override else DEFAULT_LOCK
 
 
@@ -144,3 +144,11 @@ def verify_weights(lock: Lock, repo_root: Path) -> dict:
     return {"present": True, "path": str(path), "bytes": size, "sha256": digest,
             "matches": digest == lock.weights_sha256,
             "reason": None if digest == lock.weights_sha256 else "digest mismatch"}
+
+
+def default_data_root() -> Path:
+    """Use the source checkout only when present; wheel installs need an explicit data root."""
+    python_root = Path(__file__).resolve().parent.parent
+    if (python_root / "pyproject.toml").is_file() and (python_root.parent / "pnpm-workspace.yaml").is_file():
+        return python_root.parent
+    raise ValueError("installed package requires --repo-root pointing to a writable model/cache directory")

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1",
+  "verdict": "READY",
+  "reasons": [],
+  "config": {
+    "accepted": true,
+    "mode": "off",
+    "providerKind": "unconfigured",
+    "egressMode": "deny",
+    "features": {
+      "toolAssessment": false,
+      "toolRelevance": false,
+      "presentationFilter": false,
+      "approvalRequests": false,
+      "modelRouting": false
+    },
+    "calibration": {
+      "configured": false,
+      "appliesTo": null
+    },
+    "errors": []
+  },
+  "credentials": [],
+  "compatibility": {
+    "pinned": "0.1.7-alpha.1",
+    "installed": "0.1.7-alpha.1",
+    "verdict": "MATCH"
+  },
+  "approval": {
+    "composed": true,
+    "consequence": "ask 会送进宿主的审批接缝，结论从 approval/asked + approval/decided 事件对读回"
+  },
+  "provider": {
+    "probed": false,
+    "reason": "未配置提供方",
+    "inference": "NOT_CONFIGURED",
+    "identity": null
+  },
+  "journal": {
+    "present": true,
+    "mounted": true,
+    "mountRow": "mounted:mode=off provider=unconfigured egress=deny",
+    "decisions": 0,
+    "actions": {},
+    "executions": {},
+    "isolated": 0,
+    "lastErrors": []
+  }
+}

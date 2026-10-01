@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * `pnpm --filter jey-adapter-dsh doctor -- --config <file>`: the read-only report.
+ * `pnpm --filter jev-adapter-dsh doctor -- --config <file>`: the read-only report.
  *
- * Reads three things and writes none: a Jey config file, the installed launcher's own
- * metadata, and the journal Jey would have appended to. Anything it cannot observe it
+ * Reads three things and writes none: a Jev config file, the installed launcher's own
+ * metadata, and the journal Jev would have appended to. Anything it cannot observe it
  * says it did not observe, which is the whole point of having this command at all — the
  * launcher keeps serving after a refused plugin (docs/HOST_CONTRACT.md §13), so "the
  * command exited 0" only means something when the mount row is in the journal.
@@ -11,7 +11,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { loadConfig, type JeyConfig } from 'jey-core'
+import { loadConfig, type JeyConfig } from 'jev-core'
 import { buildDoctorReport, PINNED_LAUNCHER, type HostObservation, type ProviderProbe } from './doctor.ts'
 import { probeCapabilities, providerFor } from './jey-plugin.ts'
 
@@ -25,7 +25,7 @@ interface Options {
 function parseArgs(argv: readonly string[]): Options {
   const state = {
     config: '',
-    journal: process.env.JEY_AUDIT_PATH ?? null,
+    journal: process.env.JEV_AUDIT_PATH ?? process.env.JEY_AUDIT_PATH ?? null,
     home: process.env.DSH_HOME ?? join(homedir(), '.dsh'),
     json: false,
   }

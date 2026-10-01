@@ -1,5 +1,6 @@
 export {
   combineHostAndJey,
+  combineHostAndJev,
   evaluatePolicy,
   calibrationApplies,
   sameDigest,
@@ -72,7 +73,7 @@ export {
   type ConfigIssue,
   type ConfigResult,
   type HostCapabilities,
-  type JeyConfig,
+  type JeyConfig, type JevConfig,
   type ModelIdentity,
   type ProviderKindConfig,
 } from './config.ts'

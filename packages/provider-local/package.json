@@ -1,8 +1,8 @@
 {
-  "name": "jey-provider-local",
+  "name": "jev-provider-local",
   "version": "0.0.0",
   "private": true,
-  "description": "Client for Jey's own loopback local scoring service, per docs/handoff protocol section 1.",
+  "description": "Client for Jev's own loopback local scoring service, per docs/handoff protocol section 1.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -16,8 +16,11 @@
     }
   },
   "files": [
-    "dist",
-    "src"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts.map",
+    "src/**/*.ts"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -27,8 +30,8 @@
     "test:property": "echo \"no property tests in this package\" && exit 0"
   },
   "dependencies": {
-    "jey-contracts": "workspace:*",
-    "jey-core": "workspace:*"
+    "jev-contracts": "workspace:*",
+    "jev-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.1",

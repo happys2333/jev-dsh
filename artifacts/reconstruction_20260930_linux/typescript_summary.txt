@@ -1,0 +1,42 @@
+packages/contracts typecheck: Done
+packages/provider-mock typecheck: Done
+packages/provider-typesafe typecheck: Done
+packages/core typecheck: Done
+packages/provider-local typecheck: Done
+packages/adapter-dsh typecheck: Done
+packages/adapter-mcp typecheck: Done
+packages/provider-mock test: ℹ tests 5
+packages/provider-mock test: ℹ pass 5
+packages/provider-mock test: ℹ fail 0
+packages/provider-mock test: ℹ skipped 0
+packages/provider-mock test: ℹ duration_ms 227.655733
+packages/provider-typesafe test: ℹ tests 23
+packages/provider-typesafe test: ℹ pass 23
+packages/provider-typesafe test: ℹ fail 0
+packages/provider-typesafe test: ℹ skipped 0
+packages/provider-typesafe test: ℹ duration_ms 318.838224
+packages/core test: ℹ tests 161
+packages/core test: ℹ pass 161
+packages/core test: ℹ fail 0
+packages/core test: ℹ skipped 0
+packages/core test: ℹ duration_ms 1115.302449
+packages/provider-local test: ℹ tests 17
+packages/provider-local test: ℹ pass 17
+packages/provider-local test: ℹ fail 0
+packages/provider-local test: ℹ skipped 0
+packages/provider-local test: ℹ duration_ms 214.430991
+packages/adapter-dsh test: ℹ tests 75
+packages/adapter-dsh test: ℹ pass 75
+packages/adapter-dsh test: ℹ fail 0
+packages/adapter-dsh test: ℹ skipped 0
+packages/adapter-dsh test: ℹ duration_ms 1818.040478
+packages/adapter-mcp test: ℹ tests 28
+packages/adapter-mcp test: ℹ pass 28
+packages/adapter-mcp test: ℹ fail 0
+packages/adapter-mcp test: ℹ skipped 0
+packages/adapter-mcp test: ℹ duration_ms 9636.061429
+packages/core test:property: ℹ tests 17
+packages/core test:property: ℹ pass 17
+packages/core test:property: ℹ fail 0
+packages/core test:property: ℹ skipped 0
+packages/core test:property: ℹ duration_ms 548.872137

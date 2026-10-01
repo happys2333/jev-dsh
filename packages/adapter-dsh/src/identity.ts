@@ -1,8 +1,8 @@
 import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, ProviderIdentity,
-} from 'jey-contracts'
-import type { ModelIdentity } from 'jey-core'
-import { sameDigest } from 'jey-core'
+} from 'jev-contracts'
+import type { ModelIdentity } from 'jev-core'
+import { sameDigest } from 'jev-core'
 
 /**
  * The config schema requires `provider.local.expectedModel`, and the service reports

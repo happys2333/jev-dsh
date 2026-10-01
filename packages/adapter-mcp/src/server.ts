@@ -17,10 +17,10 @@ function isToolName(name: string): name is McpToolName {
 
 export function createJeyServer(runtime: McpRuntime): Server {
   const server = new Server(
-    { name: 'jey', version: '0.0.0' },
+    { name: 'jev', version: '0.0.0' },
     {
       capabilities: { tools: {} },
-      instructions: 'Jey answers judgement questions about work you describe. It never executes '
+      instructions: 'Jev answers judgement questions about work you describe. It never executes '
         + 'anything, never changes your policy or your credentials, and labels a synthetic or '
         + 'declined answer instead of presenting it as a verdict.',
     },
@@ -39,7 +39,8 @@ export function createJeyServer(runtime: McpRuntime): Server {
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
-    const name = request.params.name
+    const aliases: Record<string, string> = { jey_check: 'jev_check', jey_choose: 'jev_choose', jey_rank: 'jev_rank' }
+    const name = aliases[request.params.name] ?? request.params.name
     if (!isToolName(name)) {
       throw new McpError(ErrorCode.MethodNotFound, `unknown tool ${JSON.stringify(name)}`)
     }
@@ -66,3 +67,6 @@ export function createJeyServer(runtime: McpRuntime): Server {
 
   return server
 }
+
+/** Preferred spelling; the original factory remains supported. */
+export const createJevServer = createJeyServer

@@ -4,14 +4,14 @@
  * writes, mounts, launches, or sends task state.
  *
  * The point of this module is that "the config was accepted" is not the same claim as
- * "Jey is running": the launcher keeps serving after a refused plugin
+ * "Jev is running": the launcher keeps serving after a refused plugin
  * (`docs/HOST_CONTRACT.md` §13), so the journal's mount row is the only durable evidence
  * that a given process is actually watching.
  *
  * @module
  */
-import { ConfigError, loadConfig, scanJournal, type AuditEvent, type Auditable, type JeyConfig } from 'jey-core'
-import type { ProviderCapabilities, ProviderIdentity } from 'jey-contracts'
+import { ConfigError, loadConfig, scanJournal, type AuditEvent, type Auditable, type JeyConfig } from 'jev-core'
+import type { ProviderCapabilities, ProviderIdentity } from 'jev-contracts'
 import { probeCapabilities, resolveCredential } from './jey-plugin.ts'
 
 /** The launcher version this repository's host contract was probed at. */
@@ -121,18 +121,24 @@ export function buildDoctorReport(input: DoctorInput): DoctorReport {
   const scan = input.journalText === null ? null : scanJournal(input.journalText)
   const decisions = (scan?.confirmed ?? []).filter(r => r.kind === 'decision') as readonly AuditEvent[]
   const executions = (scan?.confirmed ?? []).filter(r => r.kind === 'execution')
-  const mountRow = (scan?.confirmed ?? []).map(mountedReason).find(r => r !== null) ?? null
+  const mountRow = [...(scan?.confirmed ?? [])].reverse().map(mountedReason).find(r => r !== null) ?? null
   if (input.journalText === null) reasons.push('journal-absent:没有可读的审计文件，装载状态无从判断')
-  else if (mountRow === null) reasons.push('journal-unmounted:审计里没有 mount 行，这个进程里的 Jey 可能根本没装载')
-
-  const verdict: DoctorReport['verdict'] = configErrors.length > 0 ? 'REFUSED'
-    : compatibility.verdict === 'MISMATCH' || (probe.attempted && !probe.ok) || input.journalText === null || mountRow === null ? 'NOT_READY'
-      : 'READY'
+  else if (mountRow === null) reasons.push('journal-unmounted:审计里没有 mount 行，这个进程里的 Jev 可能根本没装载')
 
   const credentialRefs = [
     ...(config !== null && config.provider.local !== undefined ? [config.provider.local.tokenRef] : []),
     ...(config !== null && config.provider.typesafe !== undefined ? [config.provider.typesafe.credentialRef] : []),
   ]
+  const credentials = credentialRefs.map(reference => ({ reference, configured: Boolean(resolveCredential(reference)) }))
+  const credentialMissing = mode !== 'off' && credentials.some(c => !c.configured)
+  if (credentialMissing) reasons.push('credential-not-configured:提供方所需凭据未配置')
+  const expectedMount = `mounted:mode=${mode} provider=${providerKind} egress=${egressMode}`
+  const mountMismatch = mountRow !== null && mountRow !== expectedMount
+  if (mountMismatch) reasons.push('journal-config-mismatch:最近装载记录与当前配置不一致')
+  const verdict: DoctorReport['verdict'] = configErrors.length > 0 ? 'REFUSED'
+    : compatibility.verdict !== 'MATCH' || credentialMissing || mountMismatch
+      || (probe.attempted && !probe.ok) || input.journalText === null || mountRow === null ? 'NOT_READY'
+      : 'READY'
   const calibration = config?.calibration
 
   return {
@@ -150,14 +156,14 @@ export function buildDoctorReport(input: DoctorInput): DoctorReport {
     },
     // Only "configured or not" — the value and the rest of the environment never leave
     // this function, which is what spec §11 asks for and what the tests below enforce.
-    credentials: credentialRefs.map(reference => ({ reference, configured: resolveCredential(reference) !== undefined })),
+    credentials,
     compatibility,
     approval: {
       composed: input.host.approvalComposed,
       consequence: input.host.approvalComposed === true
         ? 'ask 会送进宿主的审批接缝，结论从 approval/asked + approval/decided 事件对读回'
         : input.host.approvalComposed === false
-          ? '没有审批通道：Jey 把该问的问题直接记成 deny + approval-channel-absent'
+          ? '没有审批通道：Jev 把该问的问题直接记成 deny + approval-channel-absent'
           : '通道状态未知：doctor 按"没有通道"这一更严格的一侧配置校验',
     },
     provider: {

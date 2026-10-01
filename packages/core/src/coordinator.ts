@@ -1,4 +1,4 @@
-import type { DecisionProvider, DecisionRequest, DecisionResponse, ErrorCode, HostDecision, PolicyDecision, SnapshotRef } from 'jey-contracts'
+import type { DecisionProvider, DecisionRequest, DecisionResponse, ErrorCode, HostDecision, PolicyDecision, SnapshotRef } from 'jev-contracts'
 import { isFresh } from './snapshot.ts'
 import { isErrorCode } from './validate.ts'
 import { combineHostAndJey } from './policy.ts'
@@ -45,7 +45,7 @@ export const CLOSED_PHASES: readonly Phase[] = ['policy_applied', 'recorded', 'c
 
 export class IllegalTransition extends Error {
   constructor(from: Phase, to: Phase) {
-    super(`illegal Jey lifecycle transition ${from} -> ${to}`)
+    super(`illegal Jev lifecycle transition ${from} -> ${to}`)
     this.name = 'IllegalTransition'
   }
 }

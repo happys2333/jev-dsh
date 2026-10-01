@@ -1,4 +1,4 @@
-import type { JsonValue } from 'jey-contracts'
+import type { JsonValue } from 'jev-contracts'
 import { digestJson } from './canonical.ts'
 
 /**

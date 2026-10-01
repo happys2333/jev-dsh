@@ -15,8 +15,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { DecisionRequest, SnapshotRef } from 'jey-contracts'
-import { assessmentState, compileAssessment, evaluatePolicy } from 'jey-core'
+import type { DecisionRequest, SnapshotRef } from 'jev-contracts'
+import { assessmentState, compileAssessment, evaluatePolicy } from 'jev-core'
 import { LocalProvider } from '../../src/index.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))

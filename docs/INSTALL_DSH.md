@@ -1,4 +1,4 @@
-# 在 DSH 里装载 Jey
+# 在 DSH 里装载 Jev
 
 基线：DSH `0.1.7-alpha.1`（提交 `c36a83f`）。本文只写实测过或官方文档写明的事实；没验的会直接标出来。
 
@@ -18,7 +18,7 @@ cd deepseek-harness && pnpm install && pnpm run build && pnpm dsh web    # 从�
 
 ## 插件形态
 
-DSH 插件是一个导出 `name` / `inject` / `apply(ctx, config)` 的模块，由 cordis 在装载时调用 `apply`。Jey 的入口在 `packages/adapter-dsh/src/jey-plugin.ts`，`inject` 只要 `tools`——审批通道是"有就用、没有就如实降级"，不作为硬依赖，这一点与宿主自身解析 `ask` 的做法一致。
+DSH 插件是一个导出 `name` / `inject` / `apply(ctx, config)` 的模块，由 cordis 在装载时调用 `apply`。Jev 的入口在 `packages/adapter-dsh/src/jev-plugin.ts`，`inject` 只要 `tools`——审批通道是"有就用、没有就如实降级"，不作为硬依赖，这一点与宿主自身解析 `ask` 的做法一致。
 
 ## 装载（当前唯一可用方式：overlay）
 
@@ -27,7 +27,7 @@ DSH 插件是一个导出 `name` / `inject` / `apply(ctx, config)` 的模块，�
 ```yaml
 - insert:
     - id: jey
-      name: 'D:/codeWork/jev-dsh/repo/packages/adapter-dsh/src/jey-plugin.ts'
+      name: 'D:/codeWork/jev-dsh/repo/packages/adapter-dsh/src/jev-plugin.ts'
       config:
         schemaVersion: '1'
         mode: off
@@ -40,7 +40,7 @@ DSH 插件是一个导出 `name` / `inject` / `apply(ctx, config)` 的模块，�
         audit: {}
 ```
 
-`config:` 块的形状就是 `config/config.schema.json`；`{}` 会让 schema 里的默认值填进来。上例是全关的最小可用配置：装上之后 Jey 不做任何事，`doctor` 之外也没有可观察行为。想开始观察再改：
+`config:` 块的形状就是 `config/config.schema.json`；`{}` 会让 schema 里的默认值填进来。上例是全关的最小可用配置：装上之后 Jev 不做任何事，`doctor` 之外也没有可观察行为。想开始观察再改：
 
 ```yaml
         mode: shadow
@@ -52,7 +52,7 @@ DSH 插件是一个导出 `name` / `inject` / `apply(ctx, config)` 的模块，�
 
 **注意 `mode: enforce` + `provider.kind: mock` 会被直接拒绝装载**，报 `ENFORCE_WITH_MOCK`。这不是运行期降级，是 `apply` 阶段抛错、`ctx.plugin()` 随之失败——已有宿主测试钉住这条。
 
-`provider.kind: local` 与 `typesafe` 现在都是真实现：前者连本机 `python/local_decider` 服务，后者连云端提供方。**Jey 自己不启动、不重启、不下载任何东西**——服务不在就是 `LOCAL_NOT_READY`，策略层按"必需检查不可用"升级，不会静默退回 mock。
+`provider.kind: local` 与 `typesafe` 现在都是真实现：前者连本机 `python/local_decider` 服务，后者连云端提供方。**Jev 自己不启动、不重启、不下载任何东西**——服务不在就是 `LOCAL_NOT_READY`，策略层按"必需检查不可用"升级，不会静默退回 mock。
 
 ## 接上本地提供方
 
@@ -86,7 +86,7 @@ JEY_LOCAL_TOKEN="$(openssl rand -hex 24)" .venv/Scripts/python.exe -m local_deci
           allowedOrigins: ['http://127.0.0.1:8732']
           allowedPurposes: ['tool-assessment']
         limits:
-          deadlineMs: 10000        # 见下：默认 1500 是云端量级
+          deadlineMs: 60000        # 见下：默认 1500 是云端量级
         features:
           toolAssessment: true
 ```
@@ -112,7 +112,7 @@ dsh plugin --profile <profile> add <包名>   # 官方 CLI，把参数转发给 
 
 ## 确认它真的在跑
 
-Jey 默认把审计写到 stderr；设了 `JEY_AUDIT_PATH` 就改写成 JSON Lines 文件（路径只来自环境变量，绝不来自模型可见的配置，也不接受模型改 `audit.rawContent`）：
+Jev 默认把审计写到 stderr；设了 `JEY_AUDIT_PATH` 就改写成 JSON Lines 文件（路径只来自环境变量，绝不来自模型可见的配置，也不接受模型改 `audit.rawContent`）：
 
 ```sh
 JEY_AUDIT_PATH=/tmp/jey.jsonl dsh --profile web --no-open
@@ -124,8 +124,8 @@ JEY_AUDIT_PATH=/tmp/jey.jsonl dsh --profile web --no-open
 tail -n 3 /tmp/jey.jsonl
 ```
 
-第一行是装载行（`kind: diagnostic`，`reason` 以 `mounted:` 开头）——**没有它就等于 Jey 不在**，
-后面才是判定。每做一次判定写一行 `decision`，紧跟一行 `execution`。值得核对的三点：`action` 是 Jey 的判断、`hostDecision` 是宿主原本的决定、`execution` 是实际发生了什么——**没执行就是 `null`**，不会出现"模型答了"被写成"工具跑了"。`synthetic: true` 表示这次应答来自 mock，不是真实模型。
+第一行是装载行（`kind: diagnostic`，`reason` 以 `mounted:` 开头）——**没有它就等于 Jev 不在**，
+后面才是判定。每做一次判定写一行 `decision`，紧跟一行 `execution`。值得核对的三点：`action` 是 Jev 的判断、`hostDecision` 是宿主原本的决定、`execution` 是实际发生了什么——**没执行就是 `null`**，不会出现"模型答了"被写成"工具跑了"。`synthetic: true` 表示这次应答来自 mock，不是真实模型。
 
 `packages/adapter-dsh/test/host/plugin-entry.test.ts` 走的正是这条路径：真实的 `ctx.plugin(jeyPlugin, config)`、不注入 provider、不注入 sink、断言落盘的行能被恢复扫描器原样读回。
 
@@ -146,12 +146,12 @@ node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home ../.work/dsh-host
 
 ```
 dsh: warning: 1 entry did not activate
-jey (file:///…/jey-plugin.js): ConfigError: invalid Jey configuration: ENFORCE_WITH_MOCK@/provider/kind
+jey (file:///…/jev-plugin.js): ConfigError: invalid Jev configuration: ENFORCE_WITH_MOCK@/provider/kind
 dsh web: http://127.0.0.1:<port>/?token=…
 ```
 
 然后照常服务（退出码 0）。同一份配置在 `0.1.5-rc.2` 上会中止启动，所以这不是"一直如此"的行为，
-而是固定版上的行为。也就是说：**一个配了 enforce 但配置写错的部署，运行的是没有 Jey 的宿主**，
+而是固定版上的行为。也就是说：**一个配了 enforce 但配置写错的部署，运行的是没有 Jev 的宿主**，
 而第三方插件没有办法把自己的激活变成必需。
 
 可操作的核对方式是看审计：装载成功一定会先写一行
@@ -160,17 +160,17 @@ dsh web: http://127.0.0.1:<port>/?token=…
 {"kind":"diagnostic","reason":"mounted:mode=enforce provider=local egress=local-only", …}
 ```
 
-启动后该文件为空或不存在 = Jey 不在。这一行不能由宿主日志替代：启动期的日志 exporter 是
+启动后该文件为空或不存在 = Jev 不在。这一行不能由宿主日志替代：启动期的日志 exporter 是
 `levels:{default:2}`（warn 及以上），插件的 info 行在那段时间根本不会被打印。
 
 ## 卸载
 
-从 overlay 里删掉那个 `id: jey` 条目并重启即可。Jey 只注册监听器和一个同步 guard，`apply` 的清理会把它们逐个注销；插件实例被换掉时 generation 递增，此前在途的判断全部作废，不会跨实例生效。
+从 overlay 里删掉那个 `id: jey` 条目并重启即可。Jev 只注册监听器和一个同步 guard，`apply` 的清理会把它们逐个注销；插件实例被换掉时 generation 递增，此前在途的判断全部作废，不会跨实例生效。
 
 ## 审批通道：发行版默认就有
 
 `@deepseek-ai/dsh-base` 自己的 `cordis.patch.yml` 里就组合了 `id: approval` 的
-`@deepseek-ai/dsh-user-approval`（web/acp/headless/sdk 四个模板都建在 base 上），所以 Jey 交回的
+`@deepseek-ai/dsh-user-approval`（web/acp/headless/sdk 四个模板都建在 base 上），所以 Jev 交回的
 `ask` 在真实发行版里会走到 UI 应答者，不需要额外装载。要确认：
 
 ```sh
@@ -179,17 +179,17 @@ dsh --profile web --dump-config | grep -n "id: approval"
 
 三条实测行为（`docs/HOST_CONTRACT.md` §14、§15）：
 
-- **要让 Jey 真的提问，两侧都得成立**：宿主组合了审批服务，且配置里
+- **要让 Jev 真的提问，两侧都得成立**：宿主组合了审批服务，且配置里
   `features.approvalRequests: true`。只满足前者以前照样会弹窗——那个开关当时只在装载阶段
   被检查一次，运行期没人读它。现在缺任何一侧，升级都会降级为拒绝。
-- 没有审批服务、或者那次调用没有 agent 时，Jey 把该次判定直接记成 `deny` 并附
+- 没有审批服务、或者那次调用没有 agent 时，Jev 把该次判定直接记成 `deny` 并附
   `approval-channel-absent`。限制效果与宿主替我们降级相同，但记录说清了是谁拒的。
 - 会话策略 `never`（无人值守姿态）由服务在任何应答者之前把每次请求判为 `rejected`。
-  Jey 既不读也不改这个策略——它只负责把问题交出去，并如实记录回来的结论。
+  Jev 既不读也不改这个策略——它只负责把问题交出去，并如实记录回来的结论。
 
 ## status / doctor：装载状态的可核对入口
 
-上一节说 launcher 在配置被拒时只 warning 后继续 serve，所以需要一条**只读**命令来回答"这个部署里的 Jey 到底在不在、以什么模式在"。它读三样东西，不写任何东西、不启动任何东西、不发任务状态：
+上一节说 launcher 在配置被拒时只 warning 后继续 serve，所以需要一条**只读**命令来回答"这个部署里的 Jev 到底在不在、以什么模式在"。它读三样东西，不写任何东西、不启动任何东西、不发任务状态：
 
 ```sh
 # 相对路径按当前工作目录解析；从仓库根这样跑最省心
@@ -197,7 +197,7 @@ node packages/adapter-dsh/src/doctor-cli.ts \
   --config config/examples/off-minimal.json \
   --journal ../.work/dsh-017/home/off-audit.jsonl \
   --dsh-home ../.work/dsh-017/home
-# 等价：pnpm --filter jey-adapter-dsh run doctor -- --config …（此时 cwd 是包目录）
+# 等价：pnpm --filter jev-adapter-dsh run doctor -- --config …（此时 cwd 是包目录）
 ```
 
 真实一次运行的输出（本机 `~/.dsh` 装的是 rc.2，配置指向未运行的本地评分服务）：
@@ -229,12 +229,29 @@ why          journal-absent:没有可读的审计文件，装载状态无从判�
 
 | 项 | 状态 |
 |---|---|
-| `status` / `doctor` 只读命令 | **已实现**（见上一节）。它报告配置、宿主观测、提供方探测与审计计数；不做的是"活进程健康检查"——Jey 是库，没有控制端口 |
+| `status` / `doctor` 只读命令 | **已实现**（见上一节）。它报告配置、宿主观测、提供方探测与审计计数；不做的是"活进程健康检查"——Jev 是库，没有控制端口 |
 | 已发布的 npm 插件包 | **不存在**，`jey-*` 尚未发布，也没有确认过名称可用性 |
 | Windows 原生 / WSL2 / Linux / macOS 分别验证 | 只在 **Windows 原生 + Node 24.15** 实测过。`python/.venv` 与 llama.cpp 的 CPU 路线同理，Linux/macOS 路径未跑 |
 | 本地提供方 | 服务、真实权重、真实 TS 客户端**已跑通**（见 `docs/STATUS.md` M3）；`pip install python/` 这条路没走过，实测方式是仓库内 `.venv` + `-m local_decider.service` |
 | 断外网下的"严格离线" | **未验证**。只验证到代码路径不取网（`HF_HUB_OFFLINE=1` + `local_files_only` + 请求期不下载）；没做断网抓包级验证，所以不写"严格离线" |
 | `expectedModel` 逐字段比对 | 核心逻辑有单测（含"不匹配时提供方调用数为 0"），字段**取值**在端到端里对着 `models.lock.json` 核过；两者之间没有真机 mismatch 演练 |
 | `ask` 真正弹审批 | **PARTIAL**：真实服务已组合并有测试（授予/拒绝/无人应答，见 `approval.test.ts`），但应答者是测试里注册的合成监听器；人在浏览器里点下按钮那条端到端路径没跑过 |
-| "Jey 装载失败就不许启动" | **宿主不提供**。`0.1.7-alpha.1` 对第三方条目只 warning 后继续 serve，`requiredStartupEntryIds` 是它自己内置的清单，没有对外开关。要这条保证只能靠外部核对（见上一节的 mount 行） |
+| "Jev 装载失败就不许启动" | **宿主不提供**。`0.1.7-alpha.1` 对第三方条目只 warning 后继续 serve，`requiredStartupEntryIds` 是它自己内置的清单，没有对外开关。要这条保证只能靠外部核对（见上一节的 mount 行） |
 | `presentationFilter`（收窄模型可见工具） | **默认关闭**，且宿主合同 §8.2 的时序 gate 未通过前不应打开 |
+
+## Linux reconstruction and packaged install (2026-09-30)
+
+See [the fresh verification report](RECONSTRUCTION_20260930_LINUX.md). Local examples
+use a bounded 60000 ms budget because CPU latency varies; the earlier cloud run
+exceeded the old 10000 ms example. The launcher has caret-ranged host dependencies,
+so pinning its version alone does not freeze the full runtime; host receipts now
+include actual resolved versions.
+
+A rejected third-party plugin can leave the host serving without Jev. Require a
+fresh per-launch audit, a mount matching mode/provider/egress, and a successful
+readiness check before admitting work. An external supervisor must stop the host
+when this fails; doctor does not supervise processes or prove liveness from old logs.
+
+The schema and model-lock package copies are checked against their source contracts.
+For a Python wheel, pass an explicit writable data directory via `--repo-root` to
+both downloader and service. No default writes are made inside site-packages.

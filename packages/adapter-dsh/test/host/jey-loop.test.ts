@@ -1,5 +1,5 @@
 /**
- * M2 closed loop: Jey's decision core driving a real DSH agent loop and a real
+ * M2 closed loop: Jev's decision core driving a real DSH agent loop and a real
  * ToolRuntime, with only the model replaced by a scripted adapter and the decision
  * provider replaced by the synthetic mock. Nothing here stubs the host pipeline.
  *
@@ -14,9 +14,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { ConfigError, scanJournal, type AuditEvent, type LineSink } from 'jey-core'
+import { ConfigError, scanJournal, type AuditEvent, type LineSink } from 'jev-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
-import { MockProvider } from 'jey-provider-mock'
+import { MockProvider } from 'jev-provider-mock'
 import {
   PROBE_TOOL_NAME, probeTool, probeToolBodyCalls, resetProbeToolBodyCalls, setProbeToolFailure,
 } from '../../src/probe-tool.ts'
@@ -125,7 +125,7 @@ function decisions(runtime: JeyRuntime): readonly AuditEvent[] {
 
 /**
  * A local provider block pointed at a port nothing listens on. Nothing here ever opens a
- * socket: the assertion in these tests is about what Jey decides *before* dispatch, so a
+ * socket: the assertion in these tests is about what Jev decides *before* dispatch, so a
  * refusal must be provable without a reachable service.
  */
 function localProviderBlock(model?: { requested: string, revision: string }): Record<string, unknown> {
@@ -141,7 +141,7 @@ function localEgress(): Record<string, unknown> {
   }
 }
 
-describe('Jey closed loop on a real DSH agent', () => {
+describe('Jev closed loop on a real DSH agent', () => {
   it('observes a tool call in shadow without changing what the host decided', async () => {
     const loop = await mountLoop(jeyConfig())
     await runTurn(loop.ctx, loop.agent, 'note this down')
@@ -172,7 +172,7 @@ describe('Jey closed loop on a real DSH agent', () => {
     loop.runtime.close()
   })
 
-  it('keeps a later listener’s denial ahead of what Jey decides', async () => {
+  it('keeps a later listener’s denial ahead of what Jev decides', async () => {
     // The monotone table in core is only half the guarantee: the adapter reads the host's
     // decision through `fromPreTool`, and a dropped `deny` branch there would quietly hand
     // the host's own refusal back as an allow. Nothing in core can see that.
@@ -180,7 +180,7 @@ describe('Jey closed loop on a real DSH agent', () => {
     loop.ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'later-policy-denied' }))
     await runTurn(loop.ctx, loop.agent, 'note this down')
 
-    assert.equal(probeToolBodyCalls().length, 0, 'a refusal from the chain must survive Jey')
+    assert.equal(probeToolBodyCalls().length, 0, 'a refusal from the chain must survive Jev')
     const [record] = decisions(loop.runtime)
     assert.equal(record?.hostDecision, 'deny', 'the row must record the refusal as the host decision')
     assert.equal(record?.action, 'abstain', 'shadow itself added no restriction')
@@ -489,10 +489,10 @@ describe('Jey closed loop on a real DSH agent', () => {
       assert.match(record.requestId, /^req_/)
       assert.equal(record.snapshot.callDigest, null, 'no key means no published argument digest')
       assert.ok(record.truncatedPaths.some(p => p.startsWith('insufficient:')), JSON.stringify(record.truncatedPaths))
-      assert.equal(record.action, 'abstain', 'in shadow Jey adds no restriction of its own')
+      assert.equal(record.action, 'abstain', 'in shadow Jev adds no restriction of its own')
       // Execution is deliberately not asserted here: the widened arguments also violate
-      // the probe tool's own parameter schema, so the host rejects the call before Jey's
-      // abstain could matter. Whether a denial came from Jey or from the host is visible
+      // the probe tool's own parameter schema, so the host rejects the call before Jev's
+      // abstain could matter. Whether a denial came from Jev or from the host is visible
       // in the audit record's reasonCodes, which is the point of recording them.
       loop.runtime.close()
     } finally {

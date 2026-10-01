@@ -9,12 +9,12 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import type { ServerResponse } from 'node:http'
 import { after, describe, it } from 'node:test'
-import { DecisionCoordinator } from 'jey-core'
-import type { DecisionRequest } from 'jey-contracts'
-import { MockProvider } from 'jey-provider-mock'
+import { DecisionCoordinator } from 'jev-core'
+import type { DecisionRequest } from 'jev-contracts'
+import { MockProvider } from 'jev-provider-mock'
 import { runTool, type McpRuntime, type ToolOutcome } from '../../src/tools.ts'
 import { providerFor } from '../../src/provider.ts'
-import type { JeyConfig } from 'jey-core'
+import type { JeyConfig } from 'jev-core'
 
 const base = {
   schemaVersion: '1', mode: 'shadow', provider: { kind: 'mock' },
@@ -38,13 +38,13 @@ describe('mcp tool behaviour', () => {
   it('records its own identity, never one the caller supplied', async () => {
     const provider = new MockProvider()
     const call = runtime({ ...base }, provider)
-    const outcome = await runTool(call, 'jey_check',
+    const outcome = await runTool(call, 'jev_check',
       // Rejected as unknown keys, so the attempt itself is the assertion.
       { claim: 'does it hold', evidence: 'because I said so', sessionId: 'someone-elses-session' },
       new AbortController().signal)
     assert.equal(outcome.kind, 'protocol', JSON.stringify(outcome))
 
-    const good = await runTool(runtime({ ...base }, provider), 'jey_check',
+    const good = await runTool(runtime({ ...base }, provider), 'jev_check',
       { claim: 'does it hold', evidence: 'because I said so' }, new AbortController().signal)
     assert.equal(good.kind, 'ok', JSON.stringify(good))
     const request = provider.seen.at(-1) as DecisionRequest
@@ -59,7 +59,7 @@ describe('mcp tool behaviour', () => {
     provider.hold(1)
     const call = runtime({ ...base, limits: { deadlineMs: 10_000 } }, provider)
     const controller = new AbortController()
-    const pending = runTool(call, 'jey_check', { claim: 'c', evidence: 'e' }, controller.signal)
+    const pending = runTool(call, 'jev_check', { claim: 'c', evidence: 'e' }, controller.signal)
     await provider.holding
     controller.abort()
     const outcome = await pending
@@ -87,7 +87,7 @@ describe('mcp tool behaviour', () => {
       // deny is the default, and the MCP adapter honours it the same way the plugin does.
       egress: { mode: 'deny' },
     }, provider)
-    const outcome = await runTool(call, 'jey_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
+    const outcome = await runTool(call, 'jev_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
     assert.equal(outcome.kind, 'tool', JSON.stringify(outcome))
     if (outcome.kind === 'tool') assert.equal(outcome.code, 'EGRESS_DENIED')
     assert.equal(provider.calls, 0, 'a denied path must not be probed first')
@@ -96,7 +96,7 @@ describe('mcp tool behaviour', () => {
 
   it('refuses an input that cannot fit the state budget instead of judging a shortened one', async () => {
     const call = runtime({ ...base, limits: { maxStateBytes: 600 } }, new MockProvider())
-    const outcome = await runTool(call, 'jey_check',
+    const outcome = await runTool(call, 'jev_check',
       { claim: 'c', evidence: 'x'.repeat(4000) }, new AbortController().signal)
     assert.equal(outcome.kind, 'tool', JSON.stringify(outcome))
     if (outcome.kind === 'tool') {
@@ -109,7 +109,7 @@ describe('mcp tool behaviour', () => {
   it('answers a rank request with no candidates instead of inventing a winner', async () => {
     const provider = new MockProvider()
     const call = runtime({ ...base }, provider)
-    const outcome = await runTool(call, 'jey_rank',
+    const outcome = await runTool(call, 'jev_rank',
       { instruction: 'best fit', candidates: [] }, new AbortController().signal)
     assert.equal(outcome.kind, 'ok', JSON.stringify(outcome))
     if (outcome.kind !== 'ok') return
@@ -128,7 +128,7 @@ describe('mcp tool behaviour', () => {
 
   it('keeps a declined answer declined, never a zero', async () => {
     const call = runtime({ ...base }, new MockProvider({}, 'abstain'))
-    const outcome = await runTool(call, 'jey_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
+    const outcome = await runTool(call, 'jev_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
     assert.equal(outcome.kind, 'ok', JSON.stringify(outcome))
     if (outcome.kind !== 'ok') return
     const structured = outcome.structured as { abstained: boolean, pYes: number }
@@ -207,7 +207,7 @@ const refuse = (status: number): Handler => answer(status, { error: 'declined by
 const SERVE_CAPABILITIES: Handler = answer(200, CAPABILITIES)
 
 /**
- * One `jey_check` against a real listener on a real port, with the allowlist narrowed to
+ * One `jev_check` against a real listener on a real port, with the allowlist narrowed to
  * that port. The call count is returned alongside the outcome because these tests have to
  * tell "refused before anything was sent" apart from "sent, then refused".
  */
@@ -222,7 +222,7 @@ async function callAgainst(
   process.env.JEY_TEST_TOKEN = 'test-token'
   const call = localRuntime(portOf(socket))
   try {
-    const outcome = await runTool(call, 'jey_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
+    const outcome = await runTool(call, 'jev_check', { claim: 'c', evidence: 'e' }, new AbortController().signal)
     return { outcome, calls: (call.provider as unknown as { calls: number }).calls }
   } finally {
     delete process.env.JEY_TEST_TOKEN

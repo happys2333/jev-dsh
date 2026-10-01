@@ -1,10 +1,11 @@
+import { readBoundedJson } from './response-body.ts'
 import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ErrorCode, ProviderCapabilities,
-} from 'jey-contracts'
-import { parseDecisionResponse } from 'jey-core'
+} from 'jev-contracts'
+import { parseDecisionResponse } from 'jev-core'
 
 /**
- * Client for Jey's own local scoring service (`python/local_decider`).
+ * Client for Jev's own local scoring service (`python/local_decider`).
  *
  * The protocol is ours, defined in `docs/handoff/docs/06_PROTOCOL_AND_CONFIG_CN.md`
  * section 1. SemIf does not expose this API and we do not claim it does: wrapping a
@@ -186,6 +187,7 @@ export class LocalProvider implements DecisionProvider {
     else options.signal?.addEventListener('abort', onAbort, { once: true })
     const timer = setTimeout(() => controller.abort(new Error('local-deadline')), Math.max(1, options.timeoutMs))
 
+    try {
     let serialized: string | undefined
     if (payload !== undefined) {
       serialized = JSON.stringify(payload)
@@ -202,7 +204,7 @@ export class LocalProvider implements DecisionProvider {
         method,
         headers: {
           ...(serialized === undefined ? {} : { 'content-type': 'application/json' }),
-          ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+          ...(token === undefined || path === '/health/live' ? {} : { authorization: `Bearer ${token}` }),
         },
         ...(serialized === undefined ? {} : { body: serialized }),
         redirect: 'manual',
@@ -218,9 +220,6 @@ export class LocalProvider implements DecisionProvider {
         throw new LocalError('TIMEOUT', false, 'local service did not answer within the remaining deadline')
       }
       throw new LocalError('LOCAL_NOT_READY', true, `cannot reach the local service: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      clearTimeout(timer)
-      options.signal?.removeEventListener('abort', onAbort)
     }
 
     if (response.status >= 300 && response.status < 400) {
@@ -229,9 +228,11 @@ export class LocalProvider implements DecisionProvider {
 
     let body: unknown
     try {
-      body = await response.json()
+      body = await readBoundedJson(response, controller.signal)
     } catch {
-      if (response.ok) throw new LocalError('INVALID_RESPONSE', false, 'local service answered 2xx with a non-JSON body')
+      if (options.signal?.aborted === true) { this.discarded += 1; throw new LocalError('CANCELLED', false, 'caller cancelled while reading local response') }
+      if (controller.signal.aborted) { this.discarded += 1; throw new LocalError('TIMEOUT', false, 'local response deadline exceeded') }
+      if (response.ok) throw new LocalError('INVALID_RESPONSE', false, 'local service answered 2xx with a non-JSON or oversized body')
       body = null
     }
 
@@ -249,6 +250,10 @@ export class LocalProvider implements DecisionProvider {
       )
     }
     return body
+    } finally {
+      clearTimeout(timer)
+      options.signal?.removeEventListener('abort', onAbort)
+    }
   }
 
   /** Liveness only; documented to load nothing and leak nothing, so it needs no token. */
@@ -262,10 +267,7 @@ export class LocalProvider implements DecisionProvider {
   }
 
   async #requestUnauthenticated(path: string): Promise<unknown> {
-    const fetchImpl = this.#options.fetchImpl ?? globalThis.fetch
-    const response = await fetchImpl(`${this.#endpoint}${path}`, { method: 'GET', redirect: 'manual' })
-    if (!response.ok) throw new LocalError('LOCAL_NOT_READY', true, `${path} responded ${response.status}`, response.status)
-    return response.json()
+    return this.#request('GET', path, undefined, { timeoutMs: 2_000 })
   }
 
   /**

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionAction, HostDecision, QuestionOutcome } from 'jey-contracts'
+import type { DecisionAction, HostDecision, QuestionOutcome } from 'jev-contracts'
 import { combineHostAndJey, evaluatePolicy, REQUIRED_QUESTION_IDS } from '../../src/index.ts'
 
 export const HOSTS: readonly HostDecision[] = [

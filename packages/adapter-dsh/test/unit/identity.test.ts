@@ -7,8 +7,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, ProviderIdentity,
-} from 'jey-contracts'
-import { isErrorCode, type ModelIdentity } from 'jey-core'
+} from 'jev-contracts'
+import { isErrorCode, type ModelIdentity } from 'jev-core'
 import { ExpectedProvider, identityMismatches } from '../../src/identity.ts'
 
 const MODEL_REVISION = '4168f45a16a1290d65a4ec0fa312ae917a4c15d6'

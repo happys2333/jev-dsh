@@ -1,13 +1,13 @@
 /**
  * The MCP adapter's public surface. Two boundaries are worth stating here rather than
- * assuming: this package may import `jey-core`, the provider packages and the MCP SDK, and
+ * assuming: this package may import `jev-core`, the provider packages and the MCP SDK, and
  * it may not import DSH or Cordis — an MCP client is not a DSH agent, and pretending
  * otherwise would let the same config be interpreted two different ways. `index.test.ts`
  * enforces both directions.
  *
  * @module
  */
-export { createJeyServer } from './server.ts'
+export { createJeyServer, createJevServer } from './server.ts'
 export { runTool, type McpRuntime, type ToolOutcome } from './tools.ts'
 export { MCP_HOST_CAPABILITIES, log, runtimeFrom, serve } from './main.ts'
 export { providerFor, resolveCredential } from './provider.ts'

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from local_decider.protocol import ProtocolError, is_json_value, loads, parse_request
+from local_decider.protocol import MAX_JSON_DEPTH, ProtocolError, is_json_value, loads, parse_request
 
 SNAPSHOT = {
     "sessionId": "s", "agentId": "a", "turn": 1, "step": 2, "generation": 1,
@@ -59,6 +59,19 @@ class LoadsTest(unittest.TestCase):
     def test_deeply_nested_bodies_fail_cleanly(self) -> None:
         with self.assertRaises(ProtocolError):
             loads(b"[" * 4000 + b"]" * 4000)
+
+
+    def test_nesting_bound_includes_arrays_and_objects(self):
+        loads(b"[" * MAX_JSON_DEPTH + b"0" + b"]" * MAX_JSON_DEPTH)
+        for prefix, suffix in ((b"[", b"]"), (b'{"a":', b"}")):
+            with self.subTest(prefix=prefix), self.assertRaises(ProtocolError) as caught:
+                loads(prefix * (MAX_JSON_DEPTH + 1) + b"0" + suffix * (MAX_JSON_DEPTH + 1))
+            self.assertEqual(caught.exception.code, "INVALID_INPUT")
+            self.assertEqual(caught.exception.paths, ["<body>"])
+
+    def test_brackets_inside_strings_do_not_count(self):
+        value = {"text": ('[ { \" \" ] } ' * 1000)}
+        self.assertEqual(loads(json.dumps(value).encode()), value)
 
 
 class StructureTest(unittest.TestCase):

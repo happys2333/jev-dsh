@@ -1,4 +1,4 @@
-# Jey / ADL 项目实现核查与后续工作清单
+# Jev / ADL 项目实现核查与后续工作清单
 
 核查日期：2026-09-27。代码基线：`b062941db2d362d317ac7af1314e47ac78d8f4d0`。
 
@@ -58,7 +58,7 @@
 | `pnpm -r build` | PASS | `build.log` |
 | `pnpm -r typecheck` | PASS | `typecheck.log` |
 | `pnpm -r test` | 207 通过，0 失败 | core 144、TypeSafe 20、local 14、DSH adapter 29；`tests.log` |
-| `pnpm --filter jey-core test:property` | 16 通过 | `property.log` |
+| `pnpm --filter jev-core test:property` | 16 通过 | `property.log` |
 | Python `unittest discover -s tests -t .` | 58 项，52 通过、6 跳过 | 跳过的是 opt-in 推理测试；不能记成 58 项全通过 |
 | 本地真实服务 E2E | 2 通过，0 跳过 | `local-e2e-rerun.log`、`local-inference-e2e.json`；含真实回答和取消路径 |
 | 本地三题请求 | 本次总耗时 3862 ms，全部 answered | 单次测量；不是 p95 或性能 SLA；485 input tokens、0 output tokens、费用未知 |
@@ -208,7 +208,7 @@ TypeSafe 20 项契约测试已通过，不能写成云端真实推理成功。�
 ## 9. 可以直接交给后续 Agent 的指令
 
 ```text
-请继续当前 Jey/ADL 项目。仓库是 D:\codeWork\jev-dsh\repo。
+请继续当前 Jev/ADL 项目。仓库是 D:\codeWork\jev-dsh\repo。
 先读 docs/IMPLEMENTATION_REVIEW_20260927.md，并核对当前 HEAD、用户改动和报告基线。
 
 本批先完成 D0 与全部 P0-01～P0-07。先修宿主接线和保护逻辑，再推进新功能。

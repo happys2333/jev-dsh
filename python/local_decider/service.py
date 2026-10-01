@@ -31,13 +31,13 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .lock import Lock, load_lock
+from .lock import Lock, default_data_root, load_lock
 from .protocol import ProtocolError, SCHEMA_VERSION, loads, parse_request
 from .scoring import LocalScorer, ReadyError, evaluate
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8732
-DEFAULT_TOKEN_ENV = "JEY_LOCAL_TOKEN"
+DEFAULT_TOKEN_ENV = "JEV_LOCAL_TOKEN"
 DEFAULT_MAX_INPUT_BYTES = 32768
 DEFAULT_QUEUE_DEPTH = 4
 #: Bounds the read phase of a slow request. It is not a model timeout; that is the
@@ -182,7 +182,7 @@ class Decider:
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "jey-local-decider"
+    server_version = "jev-local-decider"
     sys_version = ""
 
     # Configuration lives on the server; these keep the handlers readable while making
@@ -206,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
         super().setup()
 
     def version_string(self) -> str:  # no Python version on the wire
-        return "jey-local-decider"
+        return "jev-local-decider"
 
     def log_message(self, fmt, *args) -> None:  # replaced by the one-line access log
         pass
@@ -365,7 +365,7 @@ GRACE_S = 0.25
 #: budget, never widen one, so a request cannot ask for an unbounded forward pass.
 #: 60000 matches `limits.deadlineMs.maximum` in config/config.schema.json: above that,
 #: the client could not have been configured to ask in the first place.
-MAX_DEADLINE_MS = int(os.environ.get("JEY_LOCAL_MAX_DEADLINE_MS", "60000"))
+MAX_DEADLINE_MS = int(os.environ.get("JEV_LOCAL_MAX_DEADLINE_MS", os.environ.get("JEY_LOCAL_MAX_DEADLINE_MS", "60000")))
 
 
 def serve(host: str, port: int, decider: Decider, token: str, max_input_bytes: int,
@@ -385,16 +385,17 @@ def serve(host: str, port: int, decider: Decider, token: str, max_input_bytes: i
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Jey local decider (loopback-only)")
-    parser.add_argument("--host", default=os.environ.get("JEY_LOCAL_HOST", DEFAULT_HOST))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("JEY_LOCAL_PORT", DEFAULT_PORT)))
-    parser.add_argument("--token-env", default=os.environ.get("JEY_LOCAL_TOKEN_ENV", DEFAULT_TOKEN_ENV))
+    parser = argparse.ArgumentParser(description="Jev local decider (loopback-only)")
+    token_env_default = "JEY_LOCAL_TOKEN" if "JEV_LOCAL_TOKEN" not in os.environ and "JEY_LOCAL_TOKEN" in os.environ else DEFAULT_TOKEN_ENV
+    parser.add_argument("--host", default=os.environ.get("JEV_LOCAL_HOST", os.environ.get("JEY_LOCAL_HOST", DEFAULT_HOST)))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("JEV_LOCAL_PORT", os.environ.get("JEY_LOCAL_PORT", DEFAULT_PORT))))
+    parser.add_argument("--token-env", default=os.environ.get("JEV_LOCAL_TOKEN_ENV", os.environ.get("JEY_LOCAL_TOKEN_ENV", token_env_default)))
     parser.add_argument("--max-input-bytes", type=int,
-                        default=int(os.environ.get("JEY_LOCAL_MAX_INPUT_BYTES", DEFAULT_MAX_INPUT_BYTES)))
+                        default=int(os.environ.get("JEV_LOCAL_MAX_INPUT_BYTES", os.environ.get("JEY_LOCAL_MAX_INPUT_BYTES", DEFAULT_MAX_INPUT_BYTES))))
     parser.add_argument("--queue-depth", type=int,
-                        default=int(os.environ.get("JEY_LOCAL_QUEUE_DEPTH", DEFAULT_QUEUE_DEPTH)))
+                        default=int(os.environ.get("JEV_LOCAL_QUEUE_DEPTH", os.environ.get("JEY_LOCAL_QUEUE_DEPTH", DEFAULT_QUEUE_DEPTH))))
     parser.add_argument("--slow-request-s", type=float,
-                        default=float(os.environ.get("JEY_LOCAL_SLOW_REQUEST_S", DEFAULT_SLOW_REQUEST_S)))
+                        default=float(os.environ.get("JEV_LOCAL_SLOW_REQUEST_S", os.environ.get("JEY_LOCAL_SLOW_REQUEST_S", DEFAULT_SLOW_REQUEST_S))))
     parser.add_argument("--lock", type=Path, default=None)
     parser.add_argument("--repo-root", type=Path, default=None)
     args = parser.parse_args(argv)
@@ -413,7 +414,10 @@ def main(argv=None) -> int:
         return 2
 
     lock: Lock = load_lock(args.lock)
-    repo_root = args.repo_root or lock.path.parents[1]
+    try:
+        repo_root = args.repo_root or default_data_root()
+    except ValueError as error:
+        parser.error(str(error))
     try:
         scorer = LocalScorer.load(lock, repo_root)
     except ReadyError as error:

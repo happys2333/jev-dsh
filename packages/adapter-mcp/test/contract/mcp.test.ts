@@ -1,5 +1,5 @@
 /**
- * The MCP surface as a client actually meets it: Jey running as its own process, talking over
+ * The MCP surface as a client actually meets it: Jev running as its own process, talking over
  * real stdio pipes, driven by the reference SDK client rather than by our own code. Everything
  * the acceptance for this adapter names is asserted here — the handshake, the advertised tools,
  * one call per tool, that stdout carries protocol bytes and nothing else, that a protocol
@@ -110,7 +110,7 @@ interface FakeService {
 }
 
 /**
- * The local inference service, as a process outside Jey. It answers `capabilities` and is told
+ * The local inference service, as a process outside Jev. It answers `capabilities` and is told
  * what to do with `decide`, so a test can make it hang, refuse, or answer.
  */
 async function startService(): Promise<FakeService> {
@@ -199,7 +199,7 @@ function toolError(result: unknown): ToolFailure {
 describe('mcp over stdio', () => {
   it('MCP-01 completes initialize and tools/list with an independent client process', async () => {
     const client = await connect(configPath('handshake', MOCK_CONFIG))
-    assert.equal(client.getServerVersion()?.name, 'jey')
+    assert.equal(client.getServerVersion()?.name, 'jev')
     // The server states its own limits, so a client that reads nothing but the instructions
     // still cannot mistake this for an executor.
     assert.match(client.getInstructions() ?? '', /never executes/i)
@@ -218,16 +218,25 @@ describe('mcp over stdio', () => {
     await client.close()
   })
 
+  it('accepts legacy jey_check while advertising Jev names', async () => {
+    const client = await connect(configPath('legacy-name', MOCK_CONFIG))
+    try {
+      const result = await client.callTool({name: 'jey_check', arguments: {...CHECK_ARGS}})
+      assert.notEqual(result.isError, true)
+      assert.ok(result.structuredContent)
+    } finally { await client.close() }
+  })
+
   it('MCP-01b answers all three tools, with the text and the structure as one thing', async () => {
     const client = await connect(configPath('calls', MOCK_CONFIG))
     const ajv = new Ajv2020({ strict: false })
     const calls = [
-      ['jey_check', { ...CHECK_ARGS }],
-      ['jey_choose', {
+      ['jev_check', { ...CHECK_ARGS }],
+      ['jev_choose', {
         instruction: 'which is safer',
         options: [{ id: 'sandbox', description: 'run it contained' }, { id: 'host', description: 'run it here' }],
       }],
-      ['jey_rank', {
+      ['jev_rank', {
         instruction: 'which is safer',
         candidates: [{ id: 'sandbox', text: 'contained' }, { id: 'host', text: 'here' }],
       }],
@@ -258,14 +267,14 @@ describe('mcp over stdio', () => {
     assert.ok(unknown instanceof McpError, `unknown tool produced ${JSON.stringify(unknown)}`)
     assert.equal((unknown as McpError).code, ErrorCode.MethodNotFound)
 
-    const malformed = await client.callTool({ name: 'jey_check', arguments: { claim: 'only a claim' } }).catch(e => e)
+    const malformed = await client.callTool({ name: 'jev_check', arguments: { claim: 'only a claim' } }).catch(e => e)
     assert.ok(malformed instanceof McpError, `missing evidence produced ${JSON.stringify(malformed)}`)
     assert.equal((malformed as McpError).code, ErrorCode.InvalidParams)
     assert.match((malformed as McpError).message, /evidence/)
 
     // A well-formed request the tool cannot answer is a *result* with `isError` set. A client
     // that treated the two above the same way would retry a bad argument forever.
-    const tooBig = await client.callTool({ name: 'jey_check', arguments: { claim: 'c', evidence: 'x'.repeat(40_000) } })
+    const tooBig = await client.callTool({ name: 'jev_check', arguments: { claim: 'c', evidence: 'x'.repeat(40_000) } })
     assert.equal(tooBig.isError, true)
     const failure = toolError(tooBig)
     assert.equal(failure.code, 'INSUFFICIENT_CONTEXT')
@@ -280,7 +289,7 @@ describe('mcp over stdio', () => {
     try {
       const client = await connect(configPath('forge', localConfig(service.port)))
       const forged = await client.callTool({
-        name: 'jey_check',
+        name: 'jev_check',
         arguments: {
           ...CHECK_ARGS,
           sessionId: 'a-session-that-is-not-mine',
@@ -296,7 +305,7 @@ describe('mcp over stdio', () => {
 
       // And the same tool does answer when nobody tries to name its own session, under an
       // identity this process chose rather than one the caller supplied.
-      const answered = await client.callTool({ name: 'jey_check', arguments: { ...CHECK_ARGS } })
+      const answered = await client.callTool({ name: 'jev_check', arguments: { ...CHECK_ARGS } })
       assert.equal(service.decides(), 1)
       assert.equal(answered.isError, true, 'the service refuses, which is a judgement attempt not a protocol fault')
       const snapshot = service.lastDecide()?.snapshot as { sessionId: string; agentId: string }
@@ -365,8 +374,8 @@ describe('mcp over stdio', () => {
       assert.ok(initialized.result !== undefined, JSON.stringify(initialized))
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
       await request('tools/list')
-      await request('tools/call', { name: 'jey_check', arguments: { ...CHECK_ARGS } })
-      await request('tools/call', { name: 'jey_check', arguments: { claim: 'no evidence' } })
+      await request('tools/call', { name: 'jev_check', arguments: { ...CHECK_ARGS } })
+      await request('tools/call', { name: 'jev_check', arguments: { claim: 'no evidence' } })
       await request('tools/call', { name: 'jey_no_such_tool', arguments: {} })
       await request('prompts/list')
 
@@ -421,7 +430,7 @@ describe('mcp over stdio', () => {
       await waitFor(() => out.includes('"id":1'), 'the handshake reply', 5000)
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
       child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call',
-        params: { name: 'jey_check', arguments: { ...CHECK_ARGS } } })}\n`)
+        params: { name: 'jev_check', arguments: { ...CHECK_ARGS } } })}\n`)
       await waitFor(() => service.decides() === 1, 'the decision to reach the service')
 
       child.stdin.end()
@@ -444,13 +453,13 @@ describe('mcp over stdio', () => {
     const client = await connect(configPath('cancel', localConfig(service.port, { maxConcurrent: 1, deadlineMs: 30_000 })))
     try {
       const controller = new AbortController()
-      const pending = client.callTool({ name: 'jey_check', arguments: { ...CHECK_ARGS } }, undefined, { signal: controller.signal })
+      const pending = client.callTool({ name: 'jev_check', arguments: { ...CHECK_ARGS } }, undefined, { signal: controller.signal })
       await waitFor(() => service.decides() === 1, 'the decision to reach the service')
       controller.abort()
       // The SDK settles an aborted request with a failure of its own, not with a result.
       const outcome = await pending.catch(e => e)
       assert.ok(outcome instanceof Error, `the cancelled call resolved with ${JSON.stringify(outcome)}`)
-      // The proof that the cancellation went *through* Jey rather than stopping at it: the
+      // The proof that the cancellation went *through* Jev rather than stopping at it: the
       // service sees its own socket hang up, seconds before its deadline could have done it.
       await waitFor(() => service.givenUp() >= 1, 'the service to see the client hang up', 3000)
 
@@ -458,7 +467,7 @@ describe('mcp over stdio', () => {
       // call would queue behind a request nobody is waiting for and time out.
       service.setBehaviour('refuse')
       const second = await Promise.race([
-        client.callTool({ name: 'jey_check', arguments: { ...CHECK_ARGS } }),
+        client.callTool({ name: 'jev_check', arguments: { ...CHECK_ARGS } }),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('the second call never ran')), 6000)),
       ])
       assert.equal(second.isError, true)
@@ -476,7 +485,7 @@ describe('mcp over stdio', () => {
     service.setBehaviour('answer')
     try {
       const client = await connect(configPath('answered', localConfig(service.port)))
-      const result = await client.callTool({ name: 'jey_check', arguments: { ...CHECK_ARGS } })
+      const result = await client.callTool({ name: 'jev_check', arguments: { ...CHECK_ARGS } })
       assert.notEqual(result.isError, true, JSON.stringify(result.content))
       const structured = result.structuredContent as Record<string, unknown>
       assert.equal(structured.pYes, 0.82)

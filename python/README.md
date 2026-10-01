@@ -1,6 +1,6 @@
-# `local_decider` — Jey's loopback decision service
+# `local_decider` — Jev's loopback decision service
 
-Scores Jey's structured questions against a **pinned quantized checkpoint on CPU** and
+Scores Jev's structured questions against a **pinned quantized checkpoint on CPU** and
 answers over `127.0.0.1`. The TypeScript side (`packages/provider-local`) is the only
 intended client.
 
@@ -69,7 +69,7 @@ JEY_RUN_INFERENCE=1 .venv/Scripts/python.exe -m unittest tests.test_inference   
 
 The inference tests skip unless the weights verify **and** `JEY_RUN_INFERENCE=1`. A skip is
 reported as a skip. The end-to-end run that starts this service from the TypeScript client
-is `pnpm --filter jey-provider-local test:e2e:local` with `JEY_E2E_LOCAL=1`.
+is `pnpm --filter jev-provider-local test:e2e:local` with `JEY_E2E_LOCAL=1`.
 
 ## Limits worth stating
 
@@ -77,5 +77,23 @@ is `pnpm --filter jey-provider-local test:e2e:local` with `JEY_E2E_LOCAL=1`.
   user. Real isolation needs an OS user or container boundary.
 * Cancellation is `discard-only`: a decode in flight cannot be interrupted, so the service
   stops serving the result and counts it as discarded rather than claiming it stopped.
-* `pip install` of this package has not been exercised. The verified layout is a checkout
-  plus `python/.venv` with SemIf installed editable.
+* Source-free wheel installation and real CPU inference were verified in the dated
+  reconstruction report, using already cached model/tokenizer assets. A pristine
+  online install of the pinned Git dependency was not exercised.
+
+## Linux and wheel use (2026-09-30)
+
+Linux uses `.venv/bin/python`. The pinned SemIf CPU build can use
+`CC=gcc CXX=g++ CMAKE_BUILD_PARALLEL_LEVEL=4`; in this SOCKS-proxied environment
+httpx also needed the registry package `socksio`. No TLS checks were disabled.
+
+The installed wheel includes `local_decider/models.lock.json`. It intentionally
+requires `--repo-root /absolute/writable/data-directory` for downloader and service
+rather than writing weights/caches into site-packages. Source checkout defaults
+continue to work. Keep `python/models.lock.json` and its bundled package copy equal;
+the package-data tests enforce this. Jev CLI aliases and JEV_/JEY_ environment
+compatibility are documented in `docs/NAMING_MIGRATION.md`.
+
+Portable local examples now allow at most 60000 ms per request. Prior ~2.5 second
+measurements are host-specific; the earlier Linux cloud run took ~12.3 seconds.
+See the fresh reconstruction report for current measurements and remaining gates.

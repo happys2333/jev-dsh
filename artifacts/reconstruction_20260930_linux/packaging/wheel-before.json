@@ -1,0 +1,19 @@
+[
+  {
+    "file": "jev_local_decider-0.0.0-py3-none-any.whl",
+    "files": [
+      "local_decider/__init__.py",
+      "local_decider/download_weights.py",
+      "local_decider/lock.py",
+      "local_decider/protocol.py",
+      "local_decider/scoring.py",
+      "local_decider/service.py",
+      "jev_local_decider-0.0.0.dist-info/METADATA",
+      "jev_local_decider-0.0.0.dist-info/WHEEL",
+      "jev_local_decider-0.0.0.dist-info/entry_points.txt",
+      "jev_local_decider-0.0.0.dist-info/top_level.txt",
+      "jev_local_decider-0.0.0.dist-info/RECORD"
+    ],
+    "has_model_lock": false
+  }
+]

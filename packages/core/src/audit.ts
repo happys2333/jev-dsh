@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto'
 import type {
   DecisionAction, DecisionResponse, ExecutionOutcome, HostDecision, JsonValue,
   ProviderKind, SnapshotRef,
-} from 'jey-contracts'
+} from 'jev-contracts'
 import { utf8Bytes } from './canonical.ts'
 
 /**
