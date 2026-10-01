@@ -1,0 +1,177 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "name": "off repeated-failure inertness",
+      "pass": true,
+      "toolBodyCalls": {
+        "success": 1,
+        "repeatedFailures": 5,
+        "hostRestricted": 0
+      },
+      "attempts": 9,
+      "decisionRows": 0,
+      "executionRows": 0,
+      "refusedRepeatMessages": [
+        "Error: fixed-synthetic-tool-failure",
+        "Error: fixed-synthetic-tool-failure"
+      ]
+    },
+    {
+      "name": "off repeated-failure inertness unload",
+      "pass": true,
+      "auditRowsAdded": 0,
+      "unrelatedHostGuardPreserved": true
+    },
+    {
+      "name": "disabled-assessment repeated-failure inertness",
+      "pass": true,
+      "toolBodyCalls": {
+        "success": 1,
+        "repeatedFailures": 5,
+        "hostRestricted": 0
+      },
+      "attempts": 9,
+      "decisionRows": 0,
+      "executionRows": 0,
+      "refusedRepeatMessages": [
+        "Error: fixed-synthetic-tool-failure",
+        "Error: fixed-synthetic-tool-failure"
+      ]
+    },
+    {
+      "name": "disabled-assessment repeated-failure inertness unload",
+      "pass": true,
+      "auditRowsAdded": 0,
+      "unrelatedHostGuardPreserved": true
+    },
+    {
+      "name": "shadow deterministic guard",
+      "pass": true,
+      "toolBodyCalls": {
+        "success": 1,
+        "repeatedFailures": 3,
+        "hostRestricted": 0
+      },
+      "attempts": 9,
+      "decisionRows": 9,
+      "executionRows": 9,
+      "refusedRepeatMessages": [
+        "Error: jey: path-paused:sha256:e2fbfed8a",
+        "Error: jey: path-paused:sha256:e2fbfed8a"
+      ]
+    },
+    {
+      "name": "shadow deterministic guard unload",
+      "pass": true,
+      "auditRowsAdded": 0,
+      "unrelatedHostGuardPreserved": true
+    },
+    {
+      "name": "shadow reload fresh generation",
+      "pass": true,
+      "toolBodyCalls": {
+        "success": 1,
+        "repeatedFailures": 3,
+        "hostRestricted": 0
+      },
+      "attempts": 9,
+      "decisionRows": 9,
+      "executionRows": 9,
+      "refusedRepeatMessages": [
+        "Error: jey: path-paused:sha256:e2fbfed8a",
+        "Error: jey: path-paused:sha256:e2fbfed8a"
+      ]
+    },
+    {
+      "name": "shadow reload fresh generation unload",
+      "pass": true,
+      "auditRowsAdded": 0,
+      "unrelatedHostGuardPreserved": true
+    },
+    {
+      "name": "shadow missing local credential",
+      "pass": true,
+      "bodyExecuted": true,
+      "decision": "abstain",
+      "reasons": [
+        "provider:AUTH",
+        "shadow-observe-only",
+        "required-check-unavailable",
+        "unusable:advances-goal",
+        "unusable:evidence-sufficient",
+        "unusable:conflicts-with-constraint",
+        "approval-channel-absent"
+      ]
+    },
+    {
+      "name": "enforce missing local credential",
+      "pass": true,
+      "bodyExecuted": false,
+      "decision": "deny",
+      "reasons": [
+        "provider:AUTH",
+        "required-check-unavailable",
+        "unusable:advances-goal",
+        "unusable:evidence-sufficient",
+        "unusable:conflicts-with-constraint",
+        "approval-channel-absent"
+      ]
+    },
+    {
+      "name": "shadow unreachable local provider",
+      "pass": true,
+      "bodyExecuted": true,
+      "decision": "abstain",
+      "reasons": [
+        "provider:LOCAL_NOT_READY",
+        "shadow-observe-only",
+        "required-check-unavailable",
+        "unusable:advances-goal",
+        "unusable:evidence-sufficient",
+        "unusable:conflicts-with-constraint",
+        "approval-channel-absent"
+      ]
+    },
+    {
+      "name": "enforce unreachable local provider",
+      "pass": true,
+      "bodyExecuted": false,
+      "decision": "deny",
+      "reasons": [
+        "provider:LOCAL_NOT_READY",
+        "required-check-unavailable",
+        "unusable:advances-goal",
+        "unusable:evidence-sufficient",
+        "unusable:conflicts-with-constraint",
+        "approval-channel-absent"
+      ]
+    }
+  ],
+  "toolBodies": {
+    "jev_real_ok": 6,
+    "jev_real_failure": 20
+  },
+  "totalDispatches": 48,
+  "listening": true,
+  "startedAt": "2026-10-01T05:10:39.694Z",
+  "finishedAt": "2026-10-01T05:10:41.592Z",
+  "versions": {
+    "dsh": "0.1.7-alpha.1",
+    "dsh-agent-loop": "0.1.7-rc.2",
+    "dsh-agent": "0.1.7-rc.2",
+    "dsh-tools": "0.1.7-rc.2",
+    "dsh-user-approval": "0.1.7-rc.2",
+    "dsh-base": "0.1.7-rc.2",
+    "cordis": "4.0.4"
+  },
+  "node": "v24.19.0",
+  "source": {
+    "entry": "file://<repo>/packages/adapter-dsh/dist/src/jev-plugin.js",
+    "entrySha256": "0b128e69ba1ba91600a265a688cd687131b59a622b8914cfc926c4980846d1ad",
+    "implementation": "packages/adapter-dsh/dist/src/jey-plugin.js",
+    "implementationSha256": "5bb1071ed498f42be07133917e2bb59fc75ebaa2f99bc7e99e7bf53decd624f7"
+  },
+  "scope": "Actual official installed DSH web launcher, real tools runtime and actual built Jev plugin. Probe tool inputs and model responses are synthetic. No generative planner, live local model, cloud call, or browser approval flow.",
+  "testedStagedSourceTree": "9748d9592f15b90a628de1dc1dead1396b9c3480"
+}

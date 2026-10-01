@@ -1,0 +1,69 @@
+name: Jev checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jev-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    name: TypeScript and npm package checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm verify
+      - name: Source-free npm install, exports, schema, dispatch and exclusion sentinels
+        run: node scripts/package_smoke.mjs "$RUNNER_TEMP/npm-package-smoke.json"
+
+  python:
+    name: Python protocol and wheel checks (no model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JEY_RUN_INFERENCE: '0'
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Python tests (real inference cases are explicitly skipped)
+        working-directory: python
+        run: python -m unittest discover -s tests -t . -v
+      - name: Build wheel without model runtime dependencies
+        run: python -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/wheels" ./python
+      - name: Verify bundled model lock and exclude weights or credentials
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, zipfile
+          wheels = list((pathlib.Path(os.environ['RUNNER_TEMP']) / 'wheels').glob('*.whl'))
+          assert len(wheels) == 1, wheels
+          with zipfile.ZipFile(wheels[0]) as wheel:
+              names = wheel.namelist()
+              assert wheel.read('local_decider/models.lock.json') == pathlib.Path('python/models.lock.json').read_bytes()
+              assert not any(name.endswith(('.gguf', '.env', '.pyc')) for name in names), names
+              print(json.dumps({'wheel': wheels[0].name, 'bundledLock': True, 'noModelOrCredentials': True}))
+          PY

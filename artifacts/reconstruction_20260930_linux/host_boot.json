@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1",
+  "checkedOn": "2026-09-30",
+  "launcher": {
+    "requested": "0.1.7-alpha.1",
+    "resolvedVersion": "0.1.7-alpha.1",
+    "installedPrefix": "0.1.7-alpha.1",
+    "profile": "web",
+    "resolvedHostPackages": {
+      "@deepseek-ai/dsh": "0.1.7-alpha.1",
+      "@deepseek-ai/dsh-agent-loop": "0.1.7-rc.2",
+      "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
+      "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
+      "@deepseek-ai/dsh-user-approval": "0.1.7-rc.2",
+      "@deepseek-ai/dsh-base": "0.1.7-rc.2",
+      "@deepseek-ai/cordis": "4.0.4"
+    }
+  },
+  "plugin": "/workspace/scratch/77623b5f7312/jev-dsh/packages/adapter-dsh/dist/src/jev-plugin.js",
+  "home": "/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host",
+  "checks": [
+    {
+      "name": "dump-config exits 0",
+      "pass": true,
+      "detail": "dump-config exits 0: exit=0"
+    },
+    {
+      "name": "dump-config names the built plugin",
+      "pass": true,
+      "detail": "dump-config names the built plugin: entry present=true"
+    },
+    {
+      "name": "dump-config carries the jey id",
+      "pass": true,
+      "detail": "dump-config carries the jey id: composed entry with id jey"
+    },
+    {
+      "name": "bad config is refused by Jev, not by the host",
+      "pass": true,
+      "detail": "bad config is refused by Jev, not by the host: ConfigError surfaced, outcome=ready log=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/runs/bad-config.log"
+    },
+    {
+      "name": "a refused config leaves no mount row",
+      "pass": true,
+      "detail": "a refused config leaves no mount row: journal=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/bad-audit.jsonl"
+    },
+    {
+      "name": "off mode serves",
+      "pass": true,
+      "detail": "off mode serves: outcome=ready log=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/runs/boot-off.log"
+    },
+    {
+      "name": "off mode mounted",
+      "pass": true,
+      "detail": "off mode mounted: journal=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/off-audit.jsonl"
+    },
+    {
+      "name": "shadow mode mounts with a provider",
+      "pass": true,
+      "detail": "shadow mode mounts with a provider: journal=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/shadow-audit.jsonl log=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/runs/boot-shadow.log"
+    },
+    {
+      "name": "Jev cloud provider mounts under installed DSH",
+      "pass": true,
+      "detail": "Jev cloud provider mounts under installed DSH: journal=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/cloud-shadow-audit.jsonl log=/workspace/scratch/77623b5f7312/jev-dsh/.work/dsh-host/runs/boot-cloud-shadow.log"
+    },
+    {
+      "name": "Jev cloud shadow host serves",
+      "pass": true,
+      "detail": "Jev cloud shadow host serves: outcome=ready"
+    }
+  ],
+  "observations": [
+    {
+      "name": "launcher reaction to a refused plugin",
+      "value": "no plugin-tree failure message; boot outcome=ready; still serving=true"
+    },
+    {
+      "name": "shadow boot journal rows",
+      "value": 1
+    },
+    {
+      "name": "cloud boot inference",
+      "value": "NOT_RUN: provider construction/mount only, no API call"
+    }
+  ],
+  "verdict": "PASS",
+  "scope": "launcher composition and plugin acceptance only; no model turn was driven"
+}

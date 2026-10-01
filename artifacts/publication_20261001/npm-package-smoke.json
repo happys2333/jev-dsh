@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "scope": "fresh tarball install and real ToolRuntime dispatch with synthetic provider; no live model or launcher",
+  "archives": [
+    {
+      "name": "jev-adapter-dsh",
+      "fileCount": 34,
+      "excludedSentinels": true,
+      "sha256": "b8326f0c73cf882c19c39a693f0b58685024a7cc1b880d9aa084ebd202a90e6b"
+    },
+    {
+      "name": "jev-adapter-mcp",
+      "fileCount": 32,
+      "excludedSentinels": true,
+      "sha256": "5f001f0827e53030d74334ee77effa98043c15168afe3fe262a065735f0a6a17"
+    },
+    {
+      "name": "jev-contracts",
+      "fileCount": 7,
+      "excludedSentinels": true,
+      "sha256": "6fe6ca7e55d23dacfafaa3be17b13338a967e9db6e1c0b92fed163c2ec1b9aa8"
+    },
+    {
+      "name": "jev-core",
+      "fileCount": 68,
+      "excludedSentinels": true,
+      "sha256": "ed497dc96853662d540d3db23bb65974040abb69bb201d4d44fcc19b176019f1"
+    },
+    {
+      "name": "jev-provider-local",
+      "fileCount": 12,
+      "excludedSentinels": true,
+      "sha256": "a6ae71e0daf43e319094aac3f08991942c681b1ee898a2d4f6a66e2d2cdb71e7"
+    },
+    {
+      "name": "jev-provider-mock",
+      "fileCount": 7,
+      "excludedSentinels": true,
+      "sha256": "5ccf6a8350e1551749afe7ac889b0b48d03ca11c6a3fa42ef1c3171abbe320cf"
+    },
+    {
+      "name": "jev-provider-typesafe",
+      "fileCount": 12,
+      "excludedSentinels": true,
+      "sha256": "165e4bb6aa561df6959b07b8527b56893ee4bdb52135fb2ce7092e38c7fb8bb2"
+    }
+  ],
+  "checks": [
+    {
+      "rootImports": 7,
+      "packageLocalSchema": true,
+      "configLoaded": true,
+      "canonicalAndLegacyPlugin": true,
+      "installedPluginToolCall": true,
+      "syntheticProvider": true
+    }
+  ],
+  "passed": true
+}

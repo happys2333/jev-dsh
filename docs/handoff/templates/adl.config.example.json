@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1",
+  "mode": "off",
+  "provider": { "kind": "unconfigured" },
+  "egress": { "mode": "deny", "allowedPurposes": [], "allowedOrigins": [] },
+  "features": {
+    "toolAssessment": { "enabled": false, "onUnavailable": "ask" },
+    "toolRelevance": { "enabled": false, "application": "advisory" },
+    "noProgress": { "enabled": false, "maxIdenticalFailures": 3 },
+    "modelRouting": { "enabled": false }
+  },
+  "limits": {
+    "maxInputBytes": 32768,
+    "maxQuestions": 32,
+    "maxConcurrentPerProvider": 2,
+    "maxQueuedPerProvider": 16,
+    "maxRequestsPerTurn": 20,
+    "decisionDeadlineMs": 3000
+  },
+  "audit": { "rawState": false, "publicDiagnostics": true },
+  "calibration": { "artifact": null }
+}

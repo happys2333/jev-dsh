@@ -1,0 +1,38 @@
+{
+  "scope": "actual launcher module HMR and synthetic tool dispatch before/after reload; no live planner",
+  "startedAt": "2026-09-30T15:46:39.748Z",
+  "passed": true,
+  "lifecycle": [
+    {
+      "event": "apply",
+      "version": 1
+    },
+    {
+      "event": "tool-body",
+      "version": 1
+    },
+    {
+      "event": "tool-complete",
+      "version": 1
+    },
+    {
+      "event": "dispose",
+      "version": 1
+    },
+    {
+      "event": "apply",
+      "version": 2
+    },
+    {
+      "event": "tool-body",
+      "version": 2
+    },
+    {
+      "event": "tool-complete",
+      "version": 2
+    }
+  ],
+  "mountCount": 2,
+  "correlatedToolCalls": 2,
+  "finishedAt": "2026-09-30T15:46:41.884Z"
+}

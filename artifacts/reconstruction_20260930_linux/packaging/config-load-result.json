@@ -1,0 +1,6 @@
+{
+  "ok": false,
+  "schema": "/workspace/scratch/77623b5f7312/jev-dsh/.work/packaging/consumer/config/config.schema.json",
+  "error": "Error: ENOENT: no such file or directory, open '/workspace/scratch/77623b5f7312/jev-dsh/.work/packaging/consumer/config/config.schema.json'",
+  "code": "ENOENT"
+}

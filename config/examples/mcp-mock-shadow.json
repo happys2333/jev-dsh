@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1",
+  "mode": "shadow",
+  "provider": { "kind": "mock" },
+  "egress": { "mode": "deny" },
+  "limits": { "deadlineMs": 3000 },
+  "features": {},
+  "audit": {}
+}

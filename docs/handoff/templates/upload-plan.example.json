@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1",
+  "authorized": false,
+  "authorizationReference": null,
+  "repository": null,
+  "remote": null,
+  "branch": null,
+  "sourceCommit": null,
+  "operations": {
+    "pushCode": false,
+    "createPullRequest": false,
+    "uploadPublicEvidence": false,
+    "createRelease": false,
+    "publishNpm": false
+  },
+  "artifacts": [],
+  "cloudTestBudgetUsd": null,
+  "largeModelDownloadAuthorized": false,
+  "requireDryRunReview": true
+}

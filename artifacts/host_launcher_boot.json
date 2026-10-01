@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1",
+  "purpose": "HOST-01: the built plugin booted inside a real, version-pinned DSH launcher in a throwaway DSH_HOME.",
+  "isExecutionResult": true,
+  "checkedOn": "2026-09-27",
+  "command": "node scripts/host_boot_check.mjs --dsh 0.1.7-alpha.1 --home <scratch-home>",
+  "runs": [
+    {
+      "version": "0.1.7-alpha.1",
+      "requested": "0.1.7-alpha.1",
+      "profile": "web",
+      "installSizeNote": "npm install of @deepseek-ai/dsh@0.1.7-alpha.1 resolved 240 @deepseek-ai packages, 519 MB, into <home>/profiles/node_modules",
+      "checks": [
+        {
+          "name": "dump-config exits 0",
+          "pass": true,
+          "detail": "dump-config exits 0: exit=0"
+        },
+        {
+          "name": "dump-config names the built plugin",
+          "pass": true,
+          "detail": "dump-config names the built plugin: entry present=true"
+        },
+        {
+          "name": "dump-config carries the jey id",
+          "pass": true,
+          "detail": "dump-config carries the jey id: composed entry with id jey"
+        },
+        {
+          "name": "bad config is refused by Jey, not by the host",
+          "pass": true,
+          "detail": "bad config is refused by Jey, not by the host: ConfigError surfaced, outcome=ready log=<path>"
+        },
+        {
+          "name": "a refused config leaves no mount row",
+          "pass": true,
+          "detail": "a refused config leaves no mount row: journal=<path>"
+        },
+        {
+          "name": "off mode serves",
+          "pass": true,
+          "detail": "off mode serves: outcome=ready log=<path>"
+        },
+        {
+          "name": "off mode mounted",
+          "pass": true,
+          "detail": "off mode mounted: journal=<path>"
+        },
+        {
+          "name": "shadow mode mounts with a provider",
+          "pass": true,
+          "detail": "shadow mode mounts with a provider: journal=<path> log=<path>"
+        }
+      ],
+      "observations": [
+        {
+          "name": "launcher reaction to a refused plugin",
+          "value": "no plugin-tree failure message; boot outcome=ready; still serving=true"
+        },
+        {
+          "name": "shadow boot journal rows",
+          "value": 1
+        }
+      ],
+      "mountRow": {
+        "kind": "diagnostic",
+        "auditId": "aud_00f3b6de-6842-4507-b5dd-b0cbac65cb76",
+        "requestId": "",
+        "sessionId": "",
+        "at": 1790499299686,
+        "reason": "mounted:mode=shadow provider=mock egress=deny"
+      },
+      "refusalText": "dsh: warning: 1 entry did not activate\njey (file:///D:/codeWork/jev-dsh/repo/packages/adapter-dsh/dist/src/jey-plugin.js): ConfigError: invalid Jey configuration: ENFORCE_WITH_MOCK@/provider/kind",
+      "verdict": "PASS"
+    }
+  ],
+  "versionComparison": [
+    {
+      "version": "0.1.7-alpha.1",
+      "how": "scratch DSH_HOME, npm-installed launcher, --patch overlay, --port 0 --no-open",
+      "pluginThrowsAtApply": "warns and serves without Jey: \"dsh: warning: 1 entry did not activate\", exit 0, listening"
+    },
+    {
+      "version": "0.1.5-rc.2",
+      "how": "the machine's own launcher under ~/.dsh (npx cache), same overlay and flags",
+      "pluginThrowsAtApply": "aborts: \"dsh: plugin tree failed to load: failed to apply loader entry jey\", exit 1, never listens"
+    }
+  ],
+  "hostFactsMeasured": [
+    "dsh-app-boot boot() marks only requiredStartupEntryIds (agent-loop, webserver, modules, connection, headless-runner, acp, sdk-jsonrpc-server) as fatal; an out-of-tree entry that throws is collected as an inactive-entry warning and the tree keeps mounting, so a refused Jey config leaves a running host with no Jey.",
+    "the startup log exporter is levels {default: 2} (warn and above), so a plugin info line is dropped during boot — which is why mounting is announced through the Jey journal instead.",
+    "DSH_HOME is overridable via the DSH_HOME environment variable; profiles live at $DSH_HOME/profiles/<name> and cordis.yml is rewritten with the shipped root text on every boot."
+  ],
+  "limitations": [
+    "no model turn was driven in either boot, so this says nothing about decision quality on a real loop (HOST-02 stays PARTIAL)",
+    "the launcher under ~/.dsh resolves its bundles from the npx cache, so the rc.2 row compares activation policy only, not a clean-room install",
+    "0.1.7-alpha.2 / 0.1.7-rc.x were not run; the boundary between aborting and warning is dated to somewhere in that range, not pinned to a commit"
+  ]
+}

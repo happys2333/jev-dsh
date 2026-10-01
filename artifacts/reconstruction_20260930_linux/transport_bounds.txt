@@ -1,0 +1,48 @@
+✔ only a loopback literal counts as local (1.542776ms)
+✔ a decision round trip preserves identity and remeasures total latency locally (5.19931ms)
+✔ the client passes the given budget through untouched and refuses a spent one (1.902248ms)
+✔ a request with a deadline already spent is refused before any request leaves (0.253452ms)
+✔ an oversized body is refused locally instead of asking the service to reject it (0.47755ms)
+✔ every endpoint except liveness requires the token, and it is never read implicitly (0.997664ms)
+✔ liveness needs no token but readiness does, and neither triggers a download (2.018744ms)
+✔ a 503 readiness is a state, not an exception (0.731292ms)
+✔ documented statuses map to the protocol codes, and the body can refine retryability (2.889607ms)
+✔ a redirect is refused rather than followed (0.499954ms)
+✔ cancellation reports that the client gave up, never that the compute stopped (6.341151ms)
+✔ responses are validated, not cast (1.217566ms)
+✔ capabilities require a named model identity before anything can be cached against it (0.827478ms)
+✔ capabilities are fetched once and can be refreshed on request (0.533274ms)
+✔ WIRE-08 local streaming body is bounded and cancelled (1.148652ms)
+✔ local deadline stays active while the response body is stalled (20.638601ms)
+✔ local caller cancellation still works after headers (11.013117ms)
+✔ a successful call reports egress to the configured alias, never to a URL (6.95079ms)
+✔ the credential is sent as a bearer header and never appears in an error (0.904463ms)
+✔ no credential means no request at all (0.213663ms)
+✔ a missing key is 403 in practice even though the docs say 401 (1.442976ms)
+✔ capacity responses are retryable, schema responses are not (1.463567ms)
+✔ a redirect is refused instead of followed (0.341635ms)
+✔ a 200 with a non-JSON body is an invalid response, not a crash (0.876762ms)
+✔ an unclassified failure is reported without pretending to be one of the known ones (0.439503ms)
+✔ cancelling the caller aborts the request rather than only discarding the answer (6.502095ms)
+✔ WIRE-08 cloud streaming body is bounded and cancelled (1.427743ms)
+✔ cloud deadline stays active after headers until the body ends (20.260179ms)
+✔ cloud caller cancellation still works after headers (11.161084ms)
+✔ the outbound body is the documented envelope and nothing more (2.265796ms)
+✔ internal identity never travels to the vendor (0.246371ms)
+✔ a duplicate question id is refused rather than silently overwriting in a map (0.575528ms)
+✔ noul parses to a boolean observation and carries no invented confidence (0.970293ms)
+✔ choice keeps the raw distribution and the provider confidence separate (1.517278ms)
+✔ score recomputes expectedIndex and rejects a provider number that disagrees (0.519182ms)
+✔ a single bad answer still surfaces as a thrown ProviderError when parsed alone (0.238129ms)
+✔ a question may be dropped or invented by neither direction (0.261324ms)
+✔ answer shape violations are refused one by one (0.719094ms)
+✔ a response without a resolved model is refused (0.396619ms)
+✔ one unusable answer degrades the batch to partial instead of discarding the rest (0.343759ms)
+ℹ tests 40
+ℹ suites 0
+ℹ pass 40
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 233.308281

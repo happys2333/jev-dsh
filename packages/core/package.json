@@ -1,0 +1,36 @@
+{
+  "name": "jev-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Jev decision core: boundary validation, pure policy, egress policy. No DSH, no network, no fs.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts.map",
+    "src/**/*.ts",
+    "config/config.schema.json"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "node --test \"test/unit/*.test.ts\"",
+    "test:property": "node --test \"test/property/*.test.ts\""
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "jev-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "4.2.0"
+  }
+}

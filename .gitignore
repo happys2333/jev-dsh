@@ -1,0 +1,17 @@
+node_modules/
+.work/
+dist/
+*.tsbuildinfo
+artifacts/tmp/
+artifacts/packages/
+artifacts/eval/
+.local/
+*.log
+.DS_Store
+python/.venv/
+python/.cache/
+*.egg-info/
+__pycache__/
+
+# Generated Python packaging output
+python/build/

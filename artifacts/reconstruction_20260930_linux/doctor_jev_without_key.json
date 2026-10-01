@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1",
+  "verdict": "NOT_READY",
+  "reasons": [
+    "credential-not-configured:提供方所需凭据未配置"
+  ],
+  "config": {
+    "accepted": true,
+    "mode": "shadow",
+    "providerKind": "typesafe",
+    "egressMode": "allowlist",
+    "features": {
+      "toolAssessment": true,
+      "toolRelevance": false,
+      "presentationFilter": false,
+      "approvalRequests": false,
+      "modelRouting": false
+    },
+    "calibration": {
+      "configured": false,
+      "appliesTo": null
+    },
+    "errors": []
+  },
+  "credentials": [
+    {
+      "reference": "env:TYPESAFE_API_KEY",
+      "configured": false
+    }
+  ],
+  "compatibility": {
+    "pinned": "0.1.7-alpha.1",
+    "installed": "0.1.7-alpha.1",
+    "verdict": "MATCH"
+  },
+  "approval": {
+    "composed": true,
+    "consequence": "ask 会送进宿主的审批接缝，结论从 approval/asked + approval/decided 事件对读回"
+  },
+  "provider": {
+    "probed": false,
+    "reason": "NOT_RUN：云端能力探测需要真实调用授权，doctor 不发请求",
+    "inference": "NOT_RUN — doctor 未探测",
+    "identity": null
+  },
+  "journal": {
+    "present": true,
+    "mounted": true,
+    "mountRow": "mounted:mode=shadow provider=typesafe egress=allowlist",
+    "decisions": 0,
+    "actions": {},
+    "executions": {},
+    "isolated": 0,
+    "lastErrors": []
+  }
+}
