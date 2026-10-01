@@ -24,6 +24,7 @@ export function boolOutcomes(overrides: Partial<Record<string, number>> = {}): Q
     answer: {
       kind: 'boolean' as const,
       pYes: pYes as number,
+      calibratedPYes: pYes as number,
       probability: { origin: 'synthetic' as const, calibration: 'uncalibrated' as const, calibrationId: null },
     },
   }))
@@ -120,6 +121,28 @@ test('evaluatePolicy: a missing required execution check is never a pass', () =>
   assert.equal(r.action, 'ask')
   assert.equal(r.checkFailed, true)
   assert.ok(r.reasonCodes.includes('required-check-unavailable'))
+})
+
+test('evaluatePolicy: wrong-kind and duplicate required answers fail closed', () => {
+  const wrongKind: QuestionOutcome[] = Object.values(REQUIRED_QUESTION_IDS).map(id => ({
+    id, status: 'answered',
+    answer: {
+      kind: 'choice', selected: 'yes', probabilities: { yes: 1, no: 0 },
+      probability: { origin: 'native-logits', calibration: 'uncalibrated', calibrationId: null },
+    },
+  }))
+  const duplicate = [...boolOutcomes(), ...boolOutcomes().slice(0, 1)]
+  const invalidProbability = boolOutcomes({ [REQUIRED_QUESTION_IDS.conflictsWithConstraint]: Number.NaN })
+  for (const outcomes of [wrongKind, duplicate, invalidProbability]) {
+    for (const approvalChannel of [true, false]) {
+      const result = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, outcomes, approvalChannel })
+      assert.equal(result.action, approvalChannel ? 'ask' : 'deny')
+      assert.equal(result.checkFailed, true)
+      assert.ok(result.reasonCodes.includes('required-check-unavailable'))
+    }
+    assert.equal(evaluatePolicy({ mode: 'shadow', host: { kind: 'allow' }, outcomes }).combined.kind, 'allow')
+    assert.equal(evaluatePolicy({ mode: 'off', host: { kind: 'allow' }, outcomes }).combined.kind, 'allow')
+  }
 })
 
 test('evaluatePolicy: enforce with no approval channel denies on unavailable check', () => {

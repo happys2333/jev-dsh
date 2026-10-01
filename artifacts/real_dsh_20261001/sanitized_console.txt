@@ -1,0 +1,30 @@
+=== bad-config.log ===
+dsh: all_proxy names a SOCKS proxy, which is not supported; connecting directly for that scheme — set an http:// or https:// proxy URL instead
+dsh: warning: 1 entry did not activate
+jey (file://<repo>/packages/adapter-dsh/dist/src/jev-plugin.js): ConfigError: invalid Jev configuration: ENFORCE_WITH_MOCK@/provider/kind
+    at loadConfig (file://<repo>/packages/core/dist/config.js:164:15)
+    at mountJey (file://<repo>/packages/adapter-dsh/dist/src/jey-plugin.js:213:20)
+    at Fiber.<anonymous> (file://<repo>/packages/adapter-dsh/dist/src/jey-plugin.js:849:25)
+    at file://<dsh-home>/profiles/node_modules/@deepseek-ai/cordis/lib/index.js:1142:34
+    at new apply (file://<repo>/packages/adapter-dsh/dist/src/jey-plugin.js:846:9)
+    at Fiber.execute (file://<dsh-home>/profiles/node_modules/@deepseek-ai/cordis/lib/index.js:1068:24)
+    at file://<dsh-home>/profiles/node_modules/@deepseek-ai/cordis/lib/index.js:1142:34
+    at file://<dsh-home>/profiles/web/#jey
+    at file://<dsh-home>/profiles/web/#include
+dsh web: http://127.0.0.1:34599/?token=<redacted>
+
+=== boot-cloud-shadow.log ===
+dsh: all_proxy names a SOCKS proxy, which is not supported; connecting directly for that scheme — set an http:// or https:// proxy URL instead
+dsh web: http://127.0.0.1:44455/?token=<redacted>
+
+=== boot-off.log ===
+dsh: all_proxy names a SOCKS proxy, which is not supported; connecting directly for that scheme — set an http:// or https:// proxy URL instead
+dsh web: http://127.0.0.1:35447/?token=<redacted>
+
+=== boot-shadow.log ===
+dsh: all_proxy names a SOCKS proxy, which is not supported; connecting directly for that scheme — set an http:// or https:// proxy URL instead
+dsh web: http://127.0.0.1:35599/?token=<redacted>
+
+=== dispatch ===
+dsh: all_proxy names a SOCKS proxy, which is not supported; connecting directly for that scheme — set an http:// or https:// proxy URL instead
+dsh web: http://127.0.0.1:36743/?token=<redacted>

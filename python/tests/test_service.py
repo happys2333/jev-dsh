@@ -8,15 +8,19 @@ end-to-end run, and nothing in this file is evidence about scoring quality.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
+import io
 import json
+import socket
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from local_decider.scoring import MAX_QUESTIONS, options_for
 from local_decider.service import (
-    GRACE_S, Decider, host_without_port, is_loopback_host, serve,
+    GRACE_S, Decider, host_without_port, is_loopback_host, main, serve,
 )
 
 TOKEN = "local-token-value"
@@ -252,6 +256,8 @@ class DecideTest(ServiceCase):
 
     def test_malformed_bodies_are_invalid_input_and_never_echo_content(self) -> None:
         not_json = b'{"schemaVersion": '
+        huge_counter = decide()
+        huge_counter["snapshot"]["turn"] = 10 ** 400
         with_nan = b'{"schemaVersion":"1","requestId":"r1","purpose":"tool-assessment",' \
                    b'"state":{"x":NaN},"questions":[{"kind":"boolean","id":"a","instructions":"?"}],' \
                    b'"budget":{"maxElapsedMs":1000,"maxInputBytes":1024},' \
@@ -266,6 +272,10 @@ class DecideTest(ServiceCase):
                 {"kind": "boolean", "id": "a", "instructions": "?"},
                 {"kind": "boolean", "id": "a", "instructions": "?"}])).encode(),
             "bad purpose": json.dumps(decide(purpose="vibes")).encode(),
+            "array purpose": json.dumps(decide(purpose=[])).encode(),
+            "object purpose": json.dumps(decide(purpose={})).encode(),
+            "huge snapshot counter": json.dumps(huge_counter).encode(),
+            "huge deadline": json.dumps(decide(budget_ms=10 ** 400)).encode(),
             "wrong schema": json.dumps(decide(schema_version="2")).encode(),
             "not an object": b"[1,2,3]",
         }
@@ -373,13 +383,52 @@ class GuardTest(unittest.TestCase):
     """The two refusals that happen before a socket exists at all."""
 
     def test_a_non_loopback_bind_and_an_empty_token_are_refused(self) -> None:
-        decider = Decider(None, 0)
+        decider = Decider(None, 1)
         for host in ("0.0.0.0", "localhost", "::", "10.0.0.7", "evil.example"):
             with self.subTest(host):
                 with self.assertRaises(ValueError):
                     serve(host, 0, decider, TOKEN, 32768, 5.0)
         with self.assertRaises(ValueError):
             serve("127.0.0.1", 0, decider, "", 32768, 5.0)
+
+    def test_nonpositive_queue_depth_is_refused_before_loading_a_model(self) -> None:
+        for depth in (0, -1):
+            with self.subTest(depth=depth):
+                with self.assertRaisesRegex(ValueError, "queue depth must be at least 1"):
+                    Decider(None, depth)
+                with patch.dict("os.environ", {"JEV_LOCAL_TOKEN": TOKEN}, clear=True), \
+                     patch("local_decider.service.LocalScorer.load") as load, \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["--queue-depth", str(depth)]), 2)
+                load.assert_not_called()
+
+    @unittest.skipUnless(socket.has_ipv6, "IPv6 is not supported by this Python build")
+    def test_ipv6_loopback_literals_bind_and_serve_liveness(self) -> None:
+        # Probe the OS separately, so unsupported hosts skip without hiding a
+        # wrong address-family choice inside serve().
+        try:
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as probe:
+                probe.bind(("::1", 0))
+        except OSError as error:
+            self.skipTest(f"IPv6 loopback is unavailable: {error}")
+        for host in ("::1", "[::1]"):
+            with self.subTest(host=host):
+                server = serve(host, 0, Decider(None, 1), TOKEN, 32768, 5.0, log=lambda _: None)
+                self.assertEqual(server.address_family, socket.AF_INET6)
+                thread = threading.Thread(target=server.serve_forever,
+                                          kwargs={"poll_interval": 0.01}, daemon=True)
+                thread.start()
+                connection = http.client.HTTPConnection("::1", server.server_address[1], timeout=5)
+                try:
+                    connection.request("GET", "/health/live")
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(json.loads(response.read()), {"live": True})
+                finally:
+                    connection.close()
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
 
     def test_loopback_literals_are_recognised_and_names_are_not(self) -> None:
         for host in ("127.0.0.1", "127.0.0.42", "::1", "[::1]"):

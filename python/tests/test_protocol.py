@@ -75,6 +75,21 @@ class LoadsTest(unittest.TestCase):
 
 
 class StructureTest(unittest.TestCase):
+    def test_non_string_purposes_are_structured_input_errors(self) -> None:
+        for purpose in ([], {}, None, True, 1):
+            with self.subTest(purpose=purpose), self.assertRaises(ProtocolError) as caught:
+                parse_request(request(purpose=purpose))
+            self.assertEqual(caught.exception.paths, ["purpose"])
+
+    def test_integers_outside_finite_number_range_are_structured_input_errors(self) -> None:
+        for path in ("snapshot.turn", "budget.maxElapsedMs", "budget.maxInputBytes", "state.value"):
+            bad = request()
+            container, field = path.split(".")
+            bad[container][field] = 10 ** 400
+            with self.subTest(path=path), self.assertRaises(ProtocolError) as caught:
+                parse_request(loads(json.dumps(bad).encode()))
+            self.assertEqual(caught.exception.paths, ["state"] if container == "state" else [path])
+
     def test_every_offending_path_is_collected_not_just_the_first(self) -> None:
         bad = request()
         bad["schemaVersion"] = "2"

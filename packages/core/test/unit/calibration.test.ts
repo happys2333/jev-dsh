@@ -116,3 +116,39 @@ test('the policy end of the wire: deny needs an applicable calibration', () => {
   assert.equal(escalated.action, 'ask')
   assert.deepEqual(escalated.reasonCodes, ['conflict-signal-uncalibrated'])
 })
+
+test('applicable calibration uses calibrated values for every policy threshold', () => {
+  const thresholds = { conflictAskAtOrAbove: 0.5, conflictDenyAtOrAbove: 0.9, goalBelow: 0.2, evidenceBelow: 0.5 }
+  const cases = [
+    { id: 'conflicts-with-constraint', raw: 0.01, calibrated: 0.99, action: 'deny' },
+    { id: 'conflicts-with-constraint', raw: 0.01, calibrated: 0.6, action: 'ask' },
+    { id: 'conflicts-with-constraint', raw: 0.99, calibrated: 0.01, action: 'abstain' },
+    { id: 'advances-goal', raw: 0.99, calibrated: 0.01, action: 'ask' },
+    { id: 'evidence-sufficient', raw: 0.99, calibrated: 0.01, action: 'ask' },
+  ]
+  for (const sample of cases) {
+    const outcomes = answers(0.01).map(outcome => outcome.id === sample.id
+      && outcome.status === 'answered' && outcome.answer.kind === 'boolean'
+      ? { ...outcome, answer: { ...outcome.answer, pYes: sample.raw, calibratedPYes: sample.calibrated } }
+      : outcome)
+    assert.deepEqual(calibrationApplies(FITTED, IDENTITY, 'tool-assessment', outcomes), [])
+    const policy = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, outcomes,
+      approvalChannel: true, calibrationAvailable: true, thresholds })
+    assert.equal(policy.action, sample.action, sample.id)
+  }
+})
+
+test('a calibrated gate never falls back to raw values when calibrated values are unusable', () => {
+  for (const invalid of [undefined, Number.NaN, Infinity, -0.1, 1.1]) {
+    const outcomes = answers(0.01).map(outcome => outcome.id === 'conflicts-with-constraint'
+      && outcome.status === 'answered' && outcome.answer.kind === 'boolean'
+      ? { ...outcome, answer: { ...outcome.answer, calibratedPYes: invalid } }
+      : outcome) as readonly QuestionOutcome[]
+    for (const approvalChannel of [true, false]) {
+      const policy = evaluatePolicy({ mode: 'enforce', host: { kind: 'allow' }, outcomes,
+        approvalChannel, calibrationAvailable: true })
+      assert.equal(policy.action, approvalChannel ? 'ask' : 'deny')
+      assert.equal(policy.checkFailed, true)
+    }
+  }
+})

@@ -130,3 +130,4 @@ export {
   type BudgetLimits,
   type BudgetVerdict,
 } from "./budget.ts"
+export { identityMismatches } from './identity.ts'

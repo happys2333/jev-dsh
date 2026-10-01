@@ -926,6 +926,9 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   // Network-free by construction: nothing here may await, so it can only speak about
   // facts the plugin already holds.
   const guardOff = ctx.tools.guard(execution => {
+    // pre-execute's early return does not bypass the host's later synchronous
+    // guards. Disabled Jev must not enforce its own progress or audit state.
+    if (config.mode === 'off' || !config.features.toolAssessment) return undefined
     // A journal the configuration requires and cannot write is a reason not to run
     // something, and the guard is the last gate before the body.
     if (runtime.auditBlocked) return 'jey: audit required but unwritable'
@@ -934,6 +937,7 @@ export function mountJey(ctx: Context, raw: unknown, deps: JeyMountDeps): JeyRun
   })
 
   const resultOff = ctx.on('tools/result', (exec, result) => {
+    if (config.mode === 'off' || !config.features.toolAssessment) return
     const scope = scopeFor(scopeKeyOf(exec))
     scope.sequence += 1
     scope.recentResults.push({ toolName: exec.name, status: result.isError ? 'failed' : 'succeeded' })

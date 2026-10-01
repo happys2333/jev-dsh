@@ -2,7 +2,7 @@ import { readBoundedJson } from './response-body.ts'
 import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ErrorCode, ProviderCapabilities,
 } from 'jev-contracts'
-import { parseDecisionResponse } from 'jev-core'
+import { isFresh, parseDecisionResponse } from 'jev-core'
 
 /**
  * Client for Jev's own local scoring service (`python/local_decider`).
@@ -162,8 +162,38 @@ export class LocalProvider implements DecisionProvider {
     if (parsed.requestId !== request.requestId) {
       throw new LocalError('INVALID_RESPONSE', false, `service answered for ${parsed.requestId} instead of ${request.requestId}`)
     }
-    if (parsed.snapshot.sessionId !== request.snapshot.sessionId || parsed.snapshot.generation !== request.snapshot.generation) {
+    if (!isFresh(request.snapshot, parsed.snapshot)
+      || parsed.snapshot.turn !== request.snapshot.turn || parsed.snapshot.step !== request.snapshot.step) {
       throw new LocalError('INVALID_RESPONSE', false, 'service answered with a snapshot identity that is not the one we sent')
+    }
+    // A valid answer shape is not necessarily an answer to this request. Bind each
+    // outcome to its question before it can reach a policy or an explicit-query caller.
+    const questions = new Map(request.questions.map(question => [question.id, question]))
+    const seen = new Set<string>()
+    for (const outcome of parsed.outcomes) {
+      const question = questions.get(outcome.id)
+      if (question === undefined || seen.has(outcome.id)) {
+        throw new LocalError('INVALID_RESPONSE', false, 'service returned an unknown or duplicate question outcome')
+      }
+      seen.add(outcome.id)
+      if (outcome.status === 'answered' && outcome.answer.kind !== question.kind) {
+        throw new LocalError('INVALID_RESPONSE', false, 'service returned an answer of the wrong question kind')
+      }
+      if (outcome.status === 'answered' && outcome.answer.kind === 'choice' && question.kind === 'choice') {
+        const optionIds = question.options.map(option => option.id)
+        const matchesOptions = (distribution: Readonly<Record<string, number>>): boolean =>
+          Object.keys(distribution).length === optionIds.length && optionIds.every(id => Object.hasOwn(distribution, id))
+        if (!matchesOptions(outcome.answer.probabilities)
+          || (outcome.answer.calibratedProbabilities !== undefined && !matchesOptions(outcome.answer.calibratedProbabilities))) {
+          throw new LocalError('INVALID_RESPONSE', false, 'service returned a distribution over different choice options')
+        }
+      }
+      if (outcome.status === 'answered' && outcome.answer.kind === 'score' && question.kind === 'score') {
+        if (outcome.answer.levels.length !== question.levels.length
+          || outcome.answer.levels.some((level, index) => level !== question.levels[index])) {
+          throw new LocalError('INVALID_RESPONSE', false, 'service returned a score using different levels')
+        }
+      }
     }
     // Latency is measured here, not trusted from the payload: the service cannot see
     // client-side queueing, and a 0 from it is a missing measurement, not a fast answer.

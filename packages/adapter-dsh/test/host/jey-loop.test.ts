@@ -202,6 +202,36 @@ describe('Jev closed loop on a real DSH agent', () => {
     loop.runtime.close()
   })
 
+  for (const [label, overrides] of [
+    ['off mode', { mode: 'off' }],
+    ['disabled assessment', { features: { toolAssessment: false } }],
+  ] as const) {
+    it(`does not pause repeated failures with ${label}, and preserves host denial`, async () => {
+      const loop = await mountLoop(
+        jeyConfig({ ...overrides, limits: { maxIdenticalFailures: 3 } }),
+        undefined,
+        { repeat: true, failTool: true },
+      )
+      try {
+        // An early return in pre-execute is insufficient: the result observer and
+        // synchronous guard must also honor the disabled state after real failures.
+        for (let turn = 0; turn < 4; turn += 1) await runTurn(loop.ctx, loop.agent, 'repeat the same safe call')
+        assert.equal(probeToolBodyCalls().length, 4, 'disabled Jev must not block the fourth body')
+        assert.equal(loop.provider.calls, 0)
+        assert.deepEqual(loop.runtime.progress, {}, 'disabled Jev must not accumulate failure budgets')
+        assert.deepEqual(decisions(loop.runtime), [])
+        assert.deepEqual(scanJournal(`${loop.lines.join('\n')}\n`).confirmed.map(r => r.kind), ['diagnostic'])
+
+        loop.ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'host-policy-denied' }))
+        await runTurn(loop.ctx, loop.agent, 'repeat the same safe call')
+        assert.equal(probeToolBodyCalls().length, 4, 'disabling Jev must preserve the host denial')
+      } finally {
+        loop.runtime.close()
+        await loop.ctx.fiber.dispose()
+      }
+    })
+  }
+
   it('refuses to install itself as an enforcer backed by synthetic answers', async () => {
     await assert.rejects(async () => mountLoop(jeyConfig({ mode: 'enforce' })), (e: unknown) => {
       assert.ok(e instanceof ConfigError, `expected ConfigError, got ${String(e)}`)

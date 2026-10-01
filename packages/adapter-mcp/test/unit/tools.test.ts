@@ -163,6 +163,25 @@ describe('mcp tool behaviour', () => {
     assert.equal(run.calls, 1, 'the decision request really went out over the socket')
   })
 
+  it('refuses every mismatched local model pin before sending decision state', async () => {
+    for (const [field, value] of [
+      ['requestedModel', 'other-model'], ['modelRevision', 'other-revision'],
+      ['weightsDigest', 'sha256:other'], ['tokenizerRevision', 'other-tokenizer'],
+      ['quantization', 'q4'], ['synthetic', true],
+    ] as const) {
+      const run = await callAgainst({
+        capabilities: answer(200, { ...CAPABILITIES, provider: { ...CAPABILITIES.provider, [field]: value } }),
+        decide: refuse(422),
+      })
+      assert.equal(run.outcome.kind, 'tool', field)
+      if (run.outcome.kind === 'tool') {
+        assert.equal(run.outcome.code, 'UNSUPPORTED_CAPABILITY', field)
+        assert.equal(run.outcome.retryable, false, field)
+      }
+      assert.equal(run.calls, 0, `${field}: only the state-free capabilities probe is permitted`)
+    }
+  })
+
   it('says what the answering side said about retrying, not what this adapter guesses', async () => {
     // The local protocol distinguishes a request this service is still willing to take
     // (429, retryable) from one it gave up on computing (504, not retryable). A retry table
@@ -242,7 +261,9 @@ function localRuntime(port: number): McpRuntime {
       kind: 'local',
       local: {
         endpoint: `http://127.0.0.1:${port}`, tokenRef: 'env:JEY_TEST_TOKEN',
-        ownership: 'external', expectedModel: { requested: 'any', revision: 'any' },
+        ownership: 'external', expectedModel: {
+          requested: 'm', revision: 'r', weightsDigest: 'sha256:w', tokenizerRevision: 't', quantization: 'q8',
+        },
       },
     },
     egress: { mode: 'local-only', allowedPurposes: ['evidence-check'], allowedOrigins: [`http://127.0.0.1:${port}`] },

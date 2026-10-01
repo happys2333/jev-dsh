@@ -9,6 +9,7 @@ other rejects shows up as a provider error rather than a clean 400.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 SCHEMA_VERSION = "1"
@@ -67,8 +68,13 @@ def _is_str(value) -> bool:
 
 
 def _is_num(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value \
-        and abs(value) != float("inf")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        # JSON integers can exceed the finite-number range used by the TS client.
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _is_int(value) -> bool:
@@ -186,7 +192,8 @@ def parse_request(raw) -> dict:
         mark.paths.append("schemaVersion")
     request_id = raw.get("requestId")
     mark.want(_is_str(request_id) and request_id != "", "requestId")
-    if raw.get("purpose") not in PURPOSES:
+    purpose = raw.get("purpose")
+    if not _is_str(purpose) or purpose not in PURPOSES:
         mark.paths.append("purpose")
     questions = raw.get("questions")
     if not isinstance(questions, list) or not questions:

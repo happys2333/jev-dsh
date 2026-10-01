@@ -14,7 +14,7 @@ import type {
   QuestionOutcome,
 } from 'jev-contracts'
 import {
-  DecisionCoordinator, assertSupported, buildSnapshot, checkEgress, fitToBudget, utf8Bytes,
+  DecisionCoordinator, assertSupported, buildSnapshot, checkEgress, fitToBudget, identityMismatches, utf8Bytes,
   type CoordinatorOutcome, type JeyConfig, type SnapshotFacts, type StateSection,
 } from 'jev-core'
 import { LocalError } from 'jev-provider-local'
@@ -231,6 +231,15 @@ export async function runTool(
     return {
       kind: 'tool', code, retryable: error instanceof LocalError ? error.retryable : false,
       message: `the provider could not be asked what it supports (${error instanceof Error ? error.message : 'unknown error'})`,
+    }
+  }
+  if (runtime.config.provider.kind === 'local' && runtime.config.provider.local !== undefined) {
+    const mismatches = identityMismatches(runtime.config.provider.local.expectedModel, capabilities.provider)
+    if (mismatches.length > 0) {
+      return {
+        kind: 'tool', code: 'UNSUPPORTED_CAPABILITY', retryable: false,
+        message: `the local provider does not match expectedModel on ${mismatches.join(', ')}`,
+      }
     }
   }
   try {

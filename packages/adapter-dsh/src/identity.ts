@@ -2,7 +2,9 @@ import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, ProviderIdentity,
 } from 'jev-contracts'
 import type { ModelIdentity } from 'jev-core'
-import { sameDigest } from 'jev-core'
+import { identityMismatches } from 'jev-core'
+
+export { identityMismatches } from 'jev-core'
 
 /**
  * The config schema requires `provider.local.expectedModel`, and the service reports
@@ -26,24 +28,6 @@ export class IdentityMismatch extends Error {
     this.name = 'IdentityMismatch'
     this.fields = fields
   }
-}
-
-export function identityMismatches(expected: ModelIdentity, reported: ProviderIdentity): string[] {
-  const out: string[] = []
-  if (reported.synthetic) out.push('synthetic')
-  if (expected.requested !== reported.requestedModel) out.push('requested')
-  if (expected.revision !== reported.modelRevision) out.push('revision')
-  for (const field of ['weightsDigest', 'tokenizerRevision', 'quantization'] as const) {
-    const wanted = expected[field]
-    if (wanted === undefined) continue
-    const actual = reported[field]
-    if (actual === null) {
-      out.push(field)
-      continue
-    }
-    if (field === 'weightsDigest' ? !sameDigest(wanted, actual) : wanted !== actual) out.push(field)
-  }
-  return out
 }
 
 export class ExpectedProvider implements DecisionProvider {

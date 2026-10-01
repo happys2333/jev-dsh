@@ -7,7 +7,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionRequest, ErrorCode, SnapshotRef } from 'jev-contracts'
+import type { DecisionRequest, ErrorCode, Question, SnapshotRef } from 'jev-contracts'
 import { LocalError, LocalProvider, isLoopbackEndpoint } from '../../src/index.ts'
 
 const TOKEN = 'local-random-token'
@@ -239,6 +239,62 @@ test('responses are validated, not cast', async () => {
     return new Response(JSON.stringify(body), { status: 200 })
   }))
   assert.equal(outOfRange.code, 'INVALID_RESPONSE', 'a pYes outside [0,1] is refused at the boundary')
+})
+
+test('outcomes must match unique requested question ids and answer kinds', async () => {
+  const probability = { origin: 'native-logits', calibration: 'uncalibrated', calibrationId: null }
+  const correct = { id: 'relevant', status: 'answered', answer: { kind: 'boolean', pYes: 0.8, probability } }
+  const cases = [
+    [{ ...correct, answer: { kind: 'choice', selected: 'yes', probabilities: { yes: 1, no: 0 }, probability } }],
+    [{ ...correct, id: 'unrequested' }],
+    [correct, correct],
+  ]
+  for (const outcomes of cases) {
+    const error = await failure(local(() => decideResult(request(), { outcomes })))
+    assert.equal(error.code, 'INVALID_RESPONSE')
+    assert.equal(error.retryable, false)
+  }
+  const partial = await local(() => decideResult(request(), { status: 'partial', outcomes: [] }))
+    .evaluate(request(), { signal: new AbortController().signal })
+  assert.equal(partial.status, 'partial', 'missing evidence may remain an explicit partial response')
+})
+
+test('the response must echo the entire snapshot, not just session and generation', async () => {
+  const changes: Partial<SnapshotRef>[] = [
+    { agentId: 'other' }, { turn: 2 }, { step: 3 }, { taskVersion: 2 },
+    { policyVersion: 'p2' }, { catalogDigest: 'other' }, { callDigest: 'other' }, { observationSequence: 13 },
+  ]
+  for (const change of changes) {
+    const error = await failure(local(() => decideResult(request(), { snapshot: ref(change) })))
+    assert.equal(error.code, 'INVALID_RESPONSE', JSON.stringify(change))
+  }
+})
+
+test('choice distributions and score levels stay bound to the requested domains', async () => {
+  const probability = { origin: 'native-logits', calibration: 'uncalibrated', calibrationId: null }
+  const choice: Question = { id: 'choice', kind: 'choice', instructions: 'Choose',
+    options: [{ id: 'yes', description: 'Yes' }, { id: 'no', description: 'No' }] }
+  const score: Question = { id: 'score', kind: 'score', instructions: 'Score', levels: ['low', 'high'] }
+  const choices = { kind: 'choice', selected: 'yes', probabilities: { yes: 0.8, no: 0.2 }, probability }
+  const scores = { kind: 'score', expectedIndex: 0.8, levels: ['low', 'high'], probabilities: { 0: 0.2, 1: 0.8 }, probability }
+  for (const [question, answer] of [[choice, choices], [score, scores]] as const) {
+    const req = request({ purpose: 'explicit-query', questions: [question] })
+    const response = await local(() => decideResult(req, { outcomes: [{ id: question.id, status: 'answered', answer }] }))
+      .evaluate(req, { signal: new AbortController().signal })
+    assert.equal(response.outcomes[0]?.status, 'answered')
+  }
+  const invalid: readonly [Question, unknown][] = [
+    [choice, { ...choices, selected: 'other', probabilities: { other: 0.8, no: 0.2 } }],
+    [choice, { ...choices, calibratedProbabilities: { other: 0.8, no: 0.2 } }],
+    [score, { ...scores, levels: ['high', 'low'] }],
+    [score, { ...scores, levels: ['low', 'medium', 'high'], probabilities: { 0: 0.2, 1: 0.3, 2: 0.5 } }],
+  ]
+  for (const [question, answer] of invalid) {
+    const req = request({ purpose: 'explicit-query', questions: [question] })
+    const p = local(() => decideResult(req, { outcomes: [{ id: question.id, status: 'answered', answer }] }))
+    await assert.rejects(() => p.evaluate(req, { signal: new AbortController().signal }),
+      (error: unknown) => error instanceof LocalError && error.code === 'INVALID_RESPONSE')
+  }
 })
 
 test('capabilities require a named model identity before anything can be cached against it', async () => {

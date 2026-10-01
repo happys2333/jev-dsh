@@ -110,8 +110,11 @@ class Decider:
     """The single compute lane in front of one loaded checkpoint."""
 
     def __init__(self, scorer: LocalScorer | None, queue_depth: int):
+        if queue_depth < 1:
+            # Queue treats zero and negative limits as unbounded, not as no queue.
+            raise ValueError("queue depth must be at least 1")
         self.scorer = scorer
-        self.pending: queue.Queue = queue.Queue(maxsize=max(0, queue_depth))
+        self.pending: queue.Queue = queue.Queue(maxsize=queue_depth)
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
         self.served = 0
@@ -368,13 +371,19 @@ GRACE_S = 0.25
 MAX_DEADLINE_MS = int(os.environ.get("JEV_LOCAL_MAX_DEADLINE_MS", os.environ.get("JEY_LOCAL_MAX_DEADLINE_MS", "60000")))
 
 
+class _IPv6HTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def serve(host: str, port: int, decider: Decider, token: str, max_input_bytes: int,
           slow_request_s: float, log=stderr_line) -> ThreadingHTTPServer:
     if not is_loopback_host(host):
         raise ValueError(f"refusing to bind {host!r}: the local service is loopback-only")
     if not token:
         raise ValueError("refusing to serve without a token")
-    server = ThreadingHTTPServer((host, port), Handler)
+    bind_host = host.strip().lower().removeprefix("[").removesuffix("]")
+    server_type = _IPv6HTTPServer if bind_host == "::1" else ThreadingHTTPServer
+    server = server_type((bind_host, port), Handler)
     server.decider = decider
     server.token = token
     server.max_input_bytes = max_input_bytes
@@ -393,7 +402,8 @@ def main(argv=None) -> int:
     parser.add_argument("--max-input-bytes", type=int,
                         default=int(os.environ.get("JEV_LOCAL_MAX_INPUT_BYTES", os.environ.get("JEY_LOCAL_MAX_INPUT_BYTES", DEFAULT_MAX_INPUT_BYTES))))
     parser.add_argument("--queue-depth", type=int,
-                        default=int(os.environ.get("JEV_LOCAL_QUEUE_DEPTH", os.environ.get("JEY_LOCAL_QUEUE_DEPTH", DEFAULT_QUEUE_DEPTH))))
+                        default=int(os.environ.get("JEV_LOCAL_QUEUE_DEPTH", os.environ.get("JEY_LOCAL_QUEUE_DEPTH", DEFAULT_QUEUE_DEPTH))),
+                        help="maximum queued requests (at least 1)")
     parser.add_argument("--slow-request-s", type=float,
                         default=float(os.environ.get("JEV_LOCAL_SLOW_REQUEST_S", os.environ.get("JEY_LOCAL_SLOW_REQUEST_S", DEFAULT_SLOW_REQUEST_S))))
     parser.add_argument("--lock", type=Path, default=None)
@@ -411,6 +421,9 @@ def main(argv=None) -> int:
         return 2
     if args.max_input_bytes < 1024:
         print("refusing to start: --max-input-bytes below 1 KiB cannot carry a decision", file=sys.stderr)
+        return 2
+    if args.queue_depth < 1:
+        print("refusing to start: --queue-depth must be at least 1", file=sys.stderr)
         return 2
 
     lock: Lock = load_lock(args.lock)
@@ -433,7 +446,10 @@ def main(argv=None) -> int:
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    print(f"jey-local listening on http://{args.host}:{server.server_address[1]} "
+    display_host = server.server_address[0]
+    if server.address_family == socket.AF_INET6:
+        display_host = f"[{display_host}]"
+    print(f"jey-local listening on http://{display_host}:{server.server_address[1]} "
           f"ready={scorer is not None} weights={lock.weights_file}", file=sys.stderr, flush=True)
     try:
         server.serve_forever(poll_interval=0.2)

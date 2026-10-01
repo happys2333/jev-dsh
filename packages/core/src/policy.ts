@@ -164,10 +164,10 @@ export function calibrationApplies(
   return [...new Set(reasons)]
 }
 
-function boolAnswer(outcomes: readonly QuestionOutcome[], id: string): number | null {
+function boolAnswer(outcomes: readonly QuestionOutcome[], id: string, calibrated: boolean): number | null {
   const found = outcomes.find(o => o.id === id)
   if (found === undefined || found.status !== 'answered' || found.answer.kind !== 'boolean') return null
-  return found.answer.pYes
+  return calibrated ? found.answer.calibratedPYes ?? null : found.answer.pYes
 }
 
 function restrict(host: HostDecision, action: DecisionAction, reasonCodes: string[], checkFailed = false): PolicyResult {
@@ -216,7 +216,16 @@ function decide(input: {
     return restrict(host, 'deny', ['hard-rule-conflict', ...hardRuleViolations.map(v => `hard-rule:${v}`)])
   }
 
-  const missing = requiredQuestionIds.filter(id => !outcomes.some(o => o.id === id && o.status === 'answered'))
+  // Assessment checks require exactly one usable Boolean observation. An answered
+  // choice/score (or a duplicate id) is not evidence for a Boolean gate: otherwise
+  // boolAnswer returns null and every threshold silently gets skipped.
+  const missing = requiredQuestionIds.filter(id => {
+    const matches = outcomes.filter(o => o.id === id)
+    const found = matches[0]
+    if (matches.length !== 1 || found?.status !== 'answered' || found.answer.kind !== 'boolean') return true
+    const score = calibrationAvailable ? found.answer.calibratedPYes : found.answer.pYes
+    return typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 1
+  })
   const unusable = [...new Set([
     ...missing,
     ...outcomes.filter(o => o.status === 'error').map(o => o.id),
@@ -230,9 +239,9 @@ function decide(input: {
   }
   if (!snapshotFresh) return escalate(host, approvalChannel, ['stale-snapshot'], true)
 
-  const conflict = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.conflictsWithConstraint)
-  const goal = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.advancesGoal)
-  const evidence = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.evidenceSufficient)
+  const conflict = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.conflictsWithConstraint, calibrationAvailable)
+  const goal = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.advancesGoal, calibrationAvailable)
+  const evidence = boolAnswer(outcomes, REQUIRED_QUESTION_IDS.evidenceSufficient, calibrationAvailable)
 
   if (conflict !== null && conflict >= thresholds.conflictDenyAtOrAbove && calibrationAvailable) {
     return restrict(host, 'deny', ['probability:conflict'])
