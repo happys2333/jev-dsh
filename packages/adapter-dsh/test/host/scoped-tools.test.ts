@@ -1,6 +1,6 @@
 /**
  * Scope boundaries: which tool definition a decision is allowed to believe it saw, and
- * what Jey must never be able to do about visibility.
+ * what Jev must never be able to do about visibility.
  *
  * Cases: HOST-08 (a global and a scoped definition sharing one name), HOST-09 (a tool the
  * host already hid), LIFE-07 (a tool-set change while a decision is open must hit only the
@@ -17,9 +17,9 @@ import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool, type ToolDefinition, type ToolExecutionInput } from '@deepseek-ai/dsh-tools'
-import { scanJournal, type AuditEvent, type AuditExecution } from 'jey-core'
+import { scanJournal, type AuditEvent, type AuditExecution } from 'jev-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
-import { MockProvider } from 'jey-provider-mock'
+import { MockProvider } from 'jev-provider-mock'
 import { PROBE_TOOL_NAME, probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../src/probe-tool.ts'
 import { REPEAT_LLM_ROUTE, repeatingProbeLlmPlugin } from '../../src/scripted-llm.ts'
 import { probePlugin, probeSequence, probeTrace, resetProbeTrace } from '../../src/probe-plugin.ts'
@@ -128,7 +128,7 @@ describe('scoped tool definitions', () => {
     await ctx.fiber.dispose()
   })
 
-  it('leaves a hidden tool hidden: Jey registers nothing and restricts nothing', async () => {
+  it('leaves a hidden tool hidden: Jev registers nothing and restricts nothing', async () => {
     const { ctx, a, b } = await mountScoped()
     const registry = ctx.tools
     let registerCalls = 0
@@ -153,9 +153,9 @@ describe('scoped tool definitions', () => {
     await runTurn(ctx, a, 'note this down')
     await runTurn(ctx, b, 'note this down')
 
-    assert.equal(registerCalls, 0, 'Jey never registers a tool')
+    assert.equal(registerCalls, 0, 'Jev never registers a tool')
     assert.equal(restrictCalls, 1, 'only the test itself restricted')
-    assert.equal(registerCalls + restrictCalls, before, 'a Jey-observed turn changed nothing')
+    assert.equal(registerCalls + restrictCalls, before, 'a Jev-observed turn changed nothing')
     // …and the counters are not silently dead: one registration through the spied object
     // has to be seen, or the zero above means nothing.
     ctx.tools.register(dupTool(GLOBAL_BODY, 'globalArgument'))
@@ -258,14 +258,14 @@ describe('scoped tool definitions', () => {
     assert.ok(assemblies.some(x => !x.returned.includes(PROBE_TOOL_NAME)),
       'a later assembly in the same turn reflects the restriction')
     // The consequence the gate exists to prevent: the tool the model was shown in this step
-    // is no longer resolvable when the call is dispatched. Jey took part in that call — it
+    // is no longer resolvable when the call is dispatched. Jev took part in that call — it
     // saw a normal pre-execute and abstained — and then the host refused to run something it
     // had just advertised, which the audit can only show as a failed execution under an
     // allow. A filter that lives in a step listener therefore leaves the layer endorsing a
     // call the host cannot make; only `system-prompt/assemble` shapes the advertised set.
     assert.equal(probeToolBodyCalls().length, 0, 'the advertised tool could not be executed')
     const [record] = decisions(runtime)
-    assert.ok(record !== undefined, 'Jey was still consulted for the call')
+    assert.ok(record !== undefined, 'Jev was still consulted for the call')
     assert.equal(record.action, 'abstain')
     assert.equal(record.hostDecision, 'allow')
     const executed = scanJournal(`${lines.join('\n')}\n`).confirmed
@@ -278,15 +278,15 @@ describe('scoped tool definitions', () => {
   it('is not consulted when a plugin mounted earlier refuses the call', async () => {
     // HOST-14 in the other direction: registration order is the waterfall position, and an
     // outer listener that returns without calling next() short-circuits everyone behind it.
-    // Jey adds no permission here — the call is still blocked — but it also records nothing,
-    // so a refusal made upstream of Jey is visible only in the host's own log. That is a
-    // limitation of being one listener among several, not something Jey can inspect.
+    // Jev adds no permission here — the call is still blocked — but it also records nothing,
+    // so a refusal made upstream of Jev is visible only in the host's own log. That is a
+    // limitation of being one listener among several, not something Jev can inspect.
     const { ctx, a, runtime } = await mountScoped('scope-order', earlier => {
       earlier.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'earlier-policy-denied' }))
     })
     await ctx.tools.execute(callInput(a, PROBE_TOOL_NAME, { note: 'x' }, 'call-order'))
 
-    assert.equal(decisions(runtime).length, 0, 'Jey was never asked, so it claims nothing')
+    assert.equal(decisions(runtime).length, 0, 'Jev was never asked, so it claims nothing')
     assert.equal(probeToolBodyCalls().length, 0, 'and the call was still blocked')
     await ctx.fiber.dispose()
   })

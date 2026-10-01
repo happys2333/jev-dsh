@@ -15,15 +15,15 @@
  */
 
 /** The three tools v1 ships. No `jey_execute`, no `jey_set_policy` (spec §12). */
-export const MCP_TOOL_NAMES = ['jey_check', 'jey_choose', 'jey_rank'] as const
+export const MCP_TOOL_NAMES = ['jev_check', 'jev_choose', 'jev_rank'] as const
 
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number]
 
 /** Handoff §12 names these `adl_*`; this repository ships the `jey_*` names (see README). */
 export const LEGACY_TOOL_NAMES: Readonly<Record<McpToolName, string>> = {
-  jey_check: 'adl_check',
-  jey_choose: 'adl_choose',
-  jey_rank: 'adl_rank',
+  jev_check: 'adl_check',
+  jev_choose: 'adl_choose',
+  jev_rank: 'adl_rank',
 }
 
 export const DEFAULT_RANK_LEVELS: readonly string[] = ['none applicable', 'poor', 'fair', 'good', 'strong']
@@ -69,7 +69,7 @@ const answerHeader = {
 }
 
 export const TOOL_INPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
-  jey_check: {
+  jev_check: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -79,7 +79,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
       evidence: boundedText(200_000, 'The explicit evidence. An empty string is refused rather than guessed past.'),
     },
   },
-  jey_choose: {
+  jev_choose: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -104,7 +104,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
       },
     },
   },
-  jey_rank: {
+  jev_rank: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -138,7 +138,7 @@ export const TOOL_INPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
 }
 
 export const TOOL_OUTPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
-  jey_check: {
+  jev_check: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -156,7 +156,7 @@ export const TOOL_OUTPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
       },
     },
   },
-  jey_choose: {
+  jev_choose: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -172,7 +172,7 @@ export const TOOL_OUTPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
       abstained: { type: 'boolean' },
     },
   },
-  jey_rank: {
+  jev_rank: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     type: 'object',
     additionalProperties: false,
@@ -211,7 +211,7 @@ export const TOOL_OUTPUT_SCHEMAS: Readonly<Record<McpToolName, object>> = {
 
 /** One-line descriptions a client shows; they state the limit of each tool, not just its name. */
 export const TOOL_DESCRIPTIONS: Readonly<Record<McpToolName, string>> = {
-  jey_check: 'Judge one claim against evidence the caller supplies. Returns a probability and the answering model’s identity; it never executes or authorises anything.',
-  jey_choose: 'Pick one of a mutually exclusive set of options, with the full distribution. Returns `none-applicable` rather than forcing a pick.',
-  jey_rank: 'Score each candidate independently against an ordered level ladder and return them best-first. An empty candidate list answers honestly.',
+  jev_check: 'Judge one claim against evidence the caller supplies. Returns a probability and the answering model’s identity; it never executes or authorises anything.',
+  jev_choose: 'Pick one of a mutually exclusive set of options, with the full distribution. Returns `none-applicable` rather than forcing a pick.',
+  jev_rank: 'Score each candidate independently against an ordered level ladder and return them best-first. An empty candidate list answers honestly.',
 }

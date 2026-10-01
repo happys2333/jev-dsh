@@ -1,4 +1,4 @@
-import type { Answer, DecisionRequest, DecisionResponse, ErrorCode, JsonValue, ProviderKind, Purpose, Question, QuestionOutcome, SnapshotRef } from 'jey-contracts'
+import type { Answer, DecisionRequest, DecisionResponse, ErrorCode, JsonValue, ProviderKind, Purpose, Question, QuestionOutcome, SnapshotRef } from 'jev-contracts'
 
 /**
  * Boundary validation. Spec section 6.1 forbids `response.json() as Answer`, so

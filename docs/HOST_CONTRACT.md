@@ -89,7 +89,7 @@ export interface LlmCallConfig { provider; model; reasoningEffort?; temperature?
 **2026-09-27 实测证实了这条，并补上一半更糟的后果**（`scoped-tools.test.ts` 的
 `shows that a restriction made inside pre-step reaches only the next assembly`）：
 在 `agent/pre-step` 里 restrict 之后，本步的 assembly 依然带着被禁的工具（模型被展示了它），
-而派发时 `resolveExecution` 已解析不到它 —— 工具体不跑，宿主返回一个错误结果。Jey 在这条调用上
+而派发时 `resolveExecution` 已解析不到它 —— 工具体不跑，宿主返回一个错误结果。Jev 在这条调用上
 正常被问到、投了 `abstain`/宿主 `allow`，执行行却是 `failed`：一层在自己刚刚认可过的调用上
 出现了它无法解释的失败。这就是"筛选只能落在 assemble"的实证理由，也是
 `presentationFilter` 继续拒绝装载的原因。
@@ -125,7 +125,7 @@ export interface LlmCallConfig { provider; model; reasoningEffort?; temperature?
 
 ## 8.1 已按实测修正的适配细节（M3）
 
-写 `jey-provider-typesafe` 时逐字用了官方文档的响应示例，并据此确定：
+写 `jev-provider-typesafe` 时逐字用了官方文档的响应示例，并据此确定：
 
 - 请求体 `questions` 是**以我方 id 为键的 map**，每题 `{type, instructions, criteria}`；`criteria` 按 primitive 变形（noul 可省、choice 是 id→评分说明的 map 且 ≤255、score 是 2–10 项的有序数组）。
 - 响应是 `{model, answers, usage}`，`answers` 按同一批 id 回镜；`usage` 只有 `input_tokens`/`output_tokens`，**没有任何费用字段** → `costUsd` 记 `null`、`costBasis` 记 `unknown`。
@@ -143,7 +143,7 @@ export interface LlmCallConfig { provider; model; reasoningEffort?; temperature?
 `packages/adapter-dsh` 用已发布的 `@deepseek-ai/dsh-agent-loop-testkit` 装配真实
 Cordis 上下文 + 真实 `ToolRuntime` + 真实生产 `AgentLoop`，只有 LLM 换成脚本驱动器；
 全程离线、无密钥。证据在 `artifacts/compatibility.json`，其中事件序列可用
-`JEY_TRACE_FILE=<path> pnpm --filter jey-adapter-dsh test` 重放并逐字节比对。
+`JEY_TRACE_FILE=<path> pnpm --filter jev-adapter-dsh test` 重放并逐字节比对。
 
 单轮两步实测顺序：
 
@@ -165,7 +165,7 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 
 - **`ask` 的授予 BLOCKED**：注册表经 `ctx.get('approval')` 解析审批，本探针未组合
   `dsh-user-approval`。实测得到的是文档所述降级——`ask` 变成拒绝（`Error: probe-ask`）。
-  → 因此 §13 的“开启审批却没有宿主能力必须启动失败”从设计条款变成可测要求：Jey 必须
+  → 因此 §13 的“开启审批却没有宿主能力必须启动失败”从设计条款变成可测要求：Jev 必须
   在装载时探测宿主是否真的提供审批通道，并把 `approvalChannel` 据实传给 `evaluatePolicy`，
   不能凭配置假定。
 - **`ctx.tools.restrict()` 未演练**，不记任何结论（第 8.2 节 presentation-only gate 仍未开始）。
@@ -206,13 +206,13 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
    `headless-runner`、`acp`、`sdk-jsonrpc-server`）判死；第三方条目抛错被归入
    `dsh: warning: N entry did not activate`，然后照常 serve（退出码 0）。
    同一份配置在 `0.1.5-rc.2` 上得到的是 `plugin tree failed to load` + 退出码 1 + 不监听。
-   ⇒ **一个本应 enforce 的部署，如果配置被拒，会以"完全没有 Jey"的状态继续运行**，
+   ⇒ **一个本应 enforce 的部署，如果配置被拒，会以"完全没有 Jev"的状态继续运行**，
    外部唯一信号是那行 warning。第三方插件没有任何开关能把自己的激活变成必需。
 2. **装载期 info 日志被过滤。** 启动 exporter 是 `levels: { default: 2 }`（warn 及以上），
    插件的 `info` 行在 boot 窗口内不可见。⇒ "我装载好了、当前是什么模式"不能靠宿主日志证明，
-   改由 Jey 自己的审计通道承担：装载成功即写一行
+   改由 Jev 自己的审计通道承担：装载成功即写一行
    `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用）。
-   这也给外部看门狗一个可判定信号：启动后没有 mount 行 = Jey 不在。
+   这也给外部看门狗一个可判定信号：启动后没有 mount 行 = Jev 不在。
 3. **`DSH_HOME` 可整体重定向**，profile 目录在 `$DSH_HOME/profiles/<name>`；每次 boot 都会用
    内置默认文本重写该目录下的 `cordis.yml`（内容幂等，但要意识到 launcher 会写用户目录）。
    `--patch` 叠加层是唯一不动用户文件的注入方式。
@@ -224,26 +224,26 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 
 - `tools/pre-execute` 的 waterfall 结果若是 `{kind:'ask'}`，宿主在链收敛后调用
   `ctx.get('approval')`；拿到服务就 `approval.request({ agent, toolName, callId, reason?, signal })`，
-  拿不到（或 `exec.agent` 为空）就直接拒绝。**审批是宿主拥有的通道**，Jey 不再另建一套。
+  拿不到（或 `exec.agent` 为空）就直接拒绝。**审批是宿主拥有的通道**，Jev 不再另建一套。
 - 返回的 `ApprovalOutcome` 只有四个值，映射一对一：`allowed-once` → 放行；`rejected` /
   `unavailable` → 拒绝（原因不同）；`cancelled` → 拒绝并标记取消。组合了服务但没有终端应答者时，
   waterfall 的内层默认就是 `unavailable` —— fail-closed 由服务自己保证。
-- `approval.request()` **要求有开着的 turn**，否则在写审计之前抛错；因此 Jey 只能在
+- `approval.request()` **要求有开着的 turn**，否则在写审计之前抛错；因此 Jev 只能在
   pre-execute 期间把它交回宿主，不能自己找时机发起。
 - 结果对写进会话日志：`approval/asked{id, toolName, callId?, reason?}` 与
   `approval/decided{id, outcome}`，通过 `ctx.on('session/event', …)` 可观察（宿主持久事件通道，
-  不是私有字段）。这是 Jey 唯一能把"人说了不"和"工具跑了但失败"分开的依据：
+  不是私有字段）。这是 Jev 唯一能把"人说了不"和"工具跑了但失败"分开的依据：
   `tools/result` 两种情况都是 `isError`。
 - 会话策略 `ask` / `never`：`never` 在任何应答者之前把每次请求判为 `rejected`（无人值守的严格姿态）。
-  Jey 不读这个策略，也不该读——它只负责把 `ask` 交出去并如实记录回来的结论。
+  Jev 不读这个策略，也不该读——它只负责把 `ask` 交出去并如实记录回来的结论。
 
-对 Jey 的三条后果：
+对 Jev 的三条后果：
 
 1. `capabilities().approvalChannel = ctx.get('approval') !== undefined` 必须真的驱动行为：
    没有通道时 `evaluatePolicy` 产出 `deny` 并附 `approval-channel-absent`，而不是交一个
    宿主必然替我们改成拒绝的 `ask`。限制相同，记录诚实度不同。
 2. 执行行的状态因此可达五种：`succeeded` / `failed` / `denied-by-host`（人拒绝或通道不可用）/
-   `cancelled` / `not-dispatched`（Jey 自己拒了，从未派发到）。
+   `cancelled` / `not-dispatched`（Jev 自己拒了，从未派发到）。
 3. 拒绝仍来自未知来源时（沙箱、别的插件），`tools/result` 里读不出来，只能记 `failed`；
    这条限制写在 `jey-plugin.ts` 的注释里，不假装能区分。
 
@@ -258,14 +258,14 @@ assemble → pre-step → llm-request → pre-execute → pre-execute-decision
 解析在 `ToolRuntime.view(scope)`：继承链"最远先写、最近的后写"，所以**最近的 scope 赢得同名**。
 展示给模型的那一份（`systemPrompt.tools` → `wireSchemas(view.visible)`）与派发时解析的那一份
 （`resolveExecution(name, exec.agent)` → 同一个 `view.visible`）是同一个视图，因此
-"广告的定义"和"执行的定义"按作用域天然一致 —— Jey 的目录摘要也必须按作用域记，否则
+"广告的定义"和"执行的定义"按作用域天然一致 —— Jev 的目录摘要也必须按作用域记，否则
 A 的判定会被 B 的目录污染。
 
 **可见性约束。** `ctx.tools.restrict({allow?, deny?})` 只在 agent 作用域可用（全局上下文调用
 直接抛，`index.js:2893`），只能**收窄**：`admits()` 对 deny 命中或 allow 未命中返回 false，
 层与层取交集。"被隐藏"在 `PromptAssembly.tools` 里的表现就是该 schema 不在数组里；
 `knownNames` 仍保留全集，只用于配置校验。⇒ 一个下游插件没有办法把被宿主藏起来的工具加回来，
-Jey 也从不尝试：它既不调 `register` 也不调 `restrict`（有测试计数）。
+Jev 也从不尝试：它既不调 `register` 也不调 `restrict`（有测试计数）。
 
 **目录变化的信号。** `tools/change` 是**零参数**、`@mode emit`、且刻意**不按作用域过滤**的
 注册表广播（doc 原文："UNFILTERED registry-subject notification… a scoped listener subscribing
@@ -284,7 +284,7 @@ execute → post-execute → result。唯一的嵌套差异是 `meta`/presentati
 跑不起来：`@deepseek-ai/dsh-ptc-runtime@0.1.7-alpha.2` 只发布抽象 Service 定义，锁文件里没有
 node 实现，`requirePtcRuntime` 直接抛。HOST-10 因此写 PARTIAL，而不是假装跑过桥。
 
-**次序。** 注册顺序就是 waterfall 顺序。排在 Jey 之前的监听器如果**不调 `next()` 就返回拒绝**，
-Jey 根本不会被问到：调用仍被拦住（权限没有被放宽），但 Jey 的日志里不会出现这条拒绝。
+**次序。** 注册顺序就是 waterfall 顺序。排在 Jev 之前的监听器如果**不调 `next()` 就返回拒绝**，
+Jev 根本不会被问到：调用仍被拦住（权限没有被放宽），但 Jev 的日志里不会出现这条拒绝。
 这是"多插件 waterfall 里的一环"的固有位置，不是一条能修的缺陷，因此以测试形式记录
 （`is not consulted when a plugin mounted earlier refuses the call`）。

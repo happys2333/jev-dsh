@@ -1,0 +1,41 @@
+{
+  "sourceCommit": "5ff451221a8f1d31682bdb9977408af96517480e",
+  "reconstructedNotByteIdenticalRecovery": true,
+  "date": "2026-09-30",
+  "results": {
+    "build": "PASS",
+    "typecheck": "PASS",
+    "typescript": {
+      "passed": 309,
+      "failed": 0,
+      "skipped": 0
+    },
+    "properties": {
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0
+    },
+    "pythonWithRealInference": {
+      "passed": 70,
+      "failed": 0,
+      "skipped": 0
+    },
+    "realLocalE2E": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "installedHost": "PASS",
+    "installedLocalDoctor": "READY",
+    "sourceFreeNpmDispatch": "PASS",
+    "packageExclusionSentinels": "PASS",
+    "wheelDataAndHelp": "PASS (no-deps only)",
+    "wheelFullRuntimeInference": "PASS: isolated 60-dependency environment with cached verified assets",
+    "npmSameBuildLifecycle": "PASS: synthetic unrelated state preserved",
+    "actualLauncherHmr": "PASS: two generations, no duplicate audit"
+  },
+  "acceptanceStatus": "NOT_ALL_COMPLETE: see report residuals",
+  "liveJevCloud": "NOT_RUN: no key/budget",
+  "publication": "LOCAL_ONLY",
+  "services": "temporary services terminated"
+}

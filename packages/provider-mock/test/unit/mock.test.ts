@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import type { DecisionRequest, Question } from 'jey-contracts'
+import type { DecisionRequest, Question } from 'jev-contracts'
 import { MockProvider } from '../../src/index.ts'
 
 const SNAPSHOT = {

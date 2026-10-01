@@ -1,4 +1,4 @@
-import type { DecisionAction, HostDecision, Mode, Purpose, ProviderIdentity, QuestionOutcome } from 'jey-contracts'
+import type { DecisionAction, HostDecision, Mode, Purpose, ProviderIdentity, QuestionOutcome } from 'jev-contracts'
 import type { ModelIdentity } from './config.ts'
 
 /**
@@ -14,7 +14,7 @@ export type Restriction = 'allow' | 'ask' | 'deny' | 'cancel'
 export const RESTRICTION_RANK: Record<Restriction, number> = { allow: 0, ask: 1, deny: 2, cancel: 3 }
 
 /**
- * Table 1: host original decision x Jey action -> decision that reaches the host.
+ * Table 1: host original decision x Jev action -> decision that reaches the host.
  *
  * The load-bearing property is that no cell produces `allow` from a host decision
  * that was not already `allow`, and `deny`/`cancel` rows are absorbing. That is
@@ -278,3 +278,6 @@ export function evaluatePolicy(input: PolicyInput): PolicyResult {
   }
   return raw
 }
+
+/** Corrected spelling, with the original export kept for existing callers. */
+export const combineHostAndJev = combineHostAndJey

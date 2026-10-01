@@ -6,7 +6,7 @@
 
 | gate | 状态 | 证据 |
 |---|---|---|
-| compatibility | **PASS（本地运行时）** | `artifacts/compatibility.json`：真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有 LLM 是脚本驱动器；7 个宿主测试全过，事件序列可用 `JEY_TRACE_FILE=<path> pnpm --filter jey-adapter-dsh test` 重放并逐字节比对 |
+| compatibility | **PASS（本地运行时）** | `artifacts/compatibility.json`：真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有 LLM 是脚本驱动器；7 个宿主测试全过，事件序列可用 `JEY_TRACE_FILE=<path> pnpm --filter jev-adapter-dsh test` 重放并逐字节比对 |
 | 实测顺序 | 已执行 | `assemble → pre-step → llm-request → pre-execute → pre-execute-decision → guard → execute → post-execute → result → assemble → …`，R-01 在运行时成立 |
 | 已证实的保护性质 | 已执行 | `pre-execute` deny 后工具体不跑；同步 guard 拒绝压过内层 waterfall 的 allow；`tools/result` 的 exec/result/content 三层全冻结、写入抛 `TypeError`；工具集只经 `PromptAssembly.tools` 投影到请求头 |
 | `ask` 授予通道 | **PASS（2026-09-27 解除）** | 当初探针未组合 `dsh-user-approval`，只实测到降级。现已把真实服务装进宿主测试：授予 → 执行、拒绝 → `denied-by-host`、无人应答 → `approval-unavailable`（见 `approval.test.ts` 与 `docs/HOST_CONTRACT.md` §14）。装载时探测 `ctx.get('approval')` 的要求保留，并且现在还驱动了行为 |
@@ -27,7 +27,7 @@
 ```sh
 pnpm -r build            # 0 error
 pnpm -r typecheck        # 0 error
-pnpm --filter jey-adapter-dsh test   # 20 测试（7 探针 + 6 闭环 + 3 cordis 入口 + 4 落盘 sink），20 pass，0 fail
+pnpm --filter jev-adapter-dsh test   # 20 测试（7 探针 + 6 闭环 + 3 cordis 入口 + 4 落盘 sink），20 pass，0 fail
 ```
 
 真实 Cordis 上下文 + 真实 `ToolRuntime` + 生产 `AgentLoop`，只有 LLM 是脚本驱动器、
@@ -64,18 +64,18 @@ shadow 下放过同一件事，两层就会互相矛盾。核心里 `evaluatePol
 pnpm install                          # 成功，含真实 DSH 包
 pnpm -r typecheck                     # 0 error（strict + noUncheckedIndexedAccess + exactOptionalPropertyTypes）
 pnpm -r test                          # 157 + 20 + 14 + 40，全部 0 fail
-pnpm --filter jey-core test:property  # 16 properties, 16 pass, 0 fail
+pnpm --filter jev-core test:property  # 16 properties, 16 pass, 0 fail
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .
                                       # 58 tests, OK (skipped=6)；6 条为需显式授权的真人推理测试
 JEY_RUN_INFERENCE=1 ... tests.test_inference   # 6 pass（真实权重）
-JEY_E2E_LOCAL=1 pnpm --filter jey-provider-local test:e2e:local  # 2 pass（真实服务 + 真实客户端）
+JEY_E2E_LOCAL=1 pnpm --filter jev-provider-local test:e2e:local  # 2 pass（真实服务 + 真实客户端）
 ```
 
 | gate | 状态 | 覆盖 |
 |---|---|---|
 | typecheck | **PASS** | contracts + core + adapter-dsh，无 `any` 兜底，无 `@ts-ignore` |
 | unit | **PASS** | 144 条：策略表 1 全 16 格与 absorbing 行、取消优先、必需题缺失、未校准不得 deny、陈旧快照、off/shadow 惰性；外发 deny 默认、精确 origin、allowlist 条件、调用方不得指定传输参数；边界校验路径收集、score 的 `expectedIndex` 是期望值（可为小数）且分布键必须是 `"0".."K-1"`；快照绑定与新鲜度；字节预算裁剪；无进展计数；固定模板与能力预检；生命周期、队列、配额账本与拒绝/归还；配置结构与矛盾组合、`config/examples/*.json` 全部过 `loadConfig` 且本地示例逐字段对着 `models.lock.json` 核；审计记录结构、隐私由字段集合而非脱敏保证、单次写者有界轮转、崩溃后撕裂末行只隔离不改写、键控摘要 |
-| property | **PASS** | Jey 永不放宽宿主决定；`allow` 只可能来自 `allow`+`abstain`；shadow/off 惰性；无观测时 enforce 不 abstain；放行必经已配置 origin；裁剪后必为合法 JSON、不超预算、有记录、受保护段不被整段丢弃；暂停路径不会重获失败预算 |
+| property | **PASS** | Jev 永不放宽宿主决定；`allow` 只可能来自 `allow`+`abstain`；shadow/off 惰性；无观测时 enforce 不 abstain；放行必经已配置 origin；裁剪后必为合法 JSON、不超预算、有记录、受保护段不被整段丢弃；暂停路径不会重获失败预算 |
 | **M1** | **PASS** | `tasks.json` 要求的三件交付物齐了：`packages/contracts`、`packages/core`、`config/config.schema.json`；typecheck / unit / property 三个 gate 全绿 |
 | 已实现模块 | — | `policy.ts`（§7.2）、`egress.ts`（§5.3）、`validate.ts`（§6.1）、`snapshot.ts`（§4.2/§10.1）、`truncation.ts`（§5.2）、`progress.ts`（§9）、`questions.ts`（§7.1/§8.1）、`coordinator.ts`（§4.4/§10.1/§10.2/§10.4）、`budget.ts`（§10.4 预留-归还账本）、`config.ts` + `config/config.schema.json`（§13、附录 4）、`audit.ts`（§11、§5.4、§4.1 三段分离）、`canonical.ts` |
 | 本轮接线 | — | 裁剪真正进请求路径：`maxStateBytes` 在提交前生效，策略与本次调用放不下就 `INSUFFICIENT_CONTEXT` 不送问；`perTurnCalls`/`perSessionCalls` 从"配置里有"变成协调器真的执行并如实拒绝；队列按会话轮转，单会话最多排 `maxQueuePerSession` 个；审计事件新增 `truncatedPaths`，被裁掉什么必须看得见 |
@@ -83,11 +83,11 @@ JEY_E2E_LOCAL=1 pnpm --filter jey-provider-local test:e2e:local  # 2 pass（真�
 ## M3 提供方
 
 ```sh
-pnpm --filter jey-provider-typesafe test  # 20 条契约测试, 20 pass, 0 fail（无网络、无凭据）
-pnpm --filter jey-provider-local test     # 14 条客户端契约测试, 0 fail
+pnpm --filter jev-provider-typesafe test  # 20 条契约测试, 20 pass, 0 fail（无网络、无凭据）
+pnpm --filter jev-provider-local test     # 14 条客户端契约测试, 0 fail
 cd python && .venv/Scripts/python.exe -m unittest discover -s tests -t .   # 58 tests, OK (skipped=6)
 JEY_RUN_INFERENCE=1 .venv/Scripts/python.exe -m unittest tests.test_inference   # 6 pass，真实权重
-JEY_E2E_LOCAL=1 pnpm --filter jey-provider-local test:e2e:local   # 2 pass，真实服务 + 真实 TS 客户端
+JEY_E2E_LOCAL=1 pnpm --filter jev-provider-local test:e2e:local   # 2 pass，真实服务 + 真实 TS 客户端
 ```
 
 | gate | 状态 | 说明 |
@@ -141,7 +141,7 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 | 检查 | 结果 |
 |---|---|
 | `--dump-config` 组合出我们的条目（含构建产物绝对路径与配置块） | PASS ×3 |
-| 故意坏的配置（`enforce` + `mock`）由**我们**拒绝：launcher 输出里出现 `invalid Jey configuration: ENFORCE_WITH_MOCK@/provider/kind`，且拒绝前不产生 mount 行 | PASS ×2 |
+| 故意坏的配置（`enforce` + `mock`）由**我们**拒绝：launcher 输出里出现 `invalid Jev configuration: ENFORCE_WITH_MOCK@/provider/kind`，且拒绝前不产生 mount 行 | PASS ×2 |
 | `off` 与 `shadow` 真启动：宿主监听 + 审计里出现 mount 行（shadow 那次 journal 恰好 1 行，没有凭空多出的判定） | PASS ×3 |
 
 同一台机器上的两个版本对同一份坏配置给出**相反**的行为，这条差异单独记（缺陷 27、HOST_CONTRACT §13）：
@@ -157,7 +157,7 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 
 ## 2026-09-27 审批通道与执行行（HOST-06 由 BLOCKED 转 PASS）
 
-`@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 现在是 `jey-adapter-dsh` 的直接依赖（peer 要求
+`@deepseek-ai/dsh-user-approval@0.1.7-alpha.1` 现在是 `jev-adapter-dsh` 的直接依赖（peer 要求
 `^0.1.7-alpha.1` 与 cordis `^4.0.3`，本树满足），宿主测试里真实组合它，并挂一个终端应答者：
 
 | 路径 | 证据 | 结果 |
@@ -165,7 +165,7 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 | 应答者授予 | `runs the call when a composed answerer grants it` | 工具体跑 1 次；执行行 `succeeded` 且 `appliedAction:'ask'` |
 | 应答者拒绝 | `records a human refusal as a host denial, not as a tool failure` | 工具体 0 次；执行行 `denied-by-host` / `approval-rejected` |
 | 组合了服务但无人应答 | `fails closed through the service when no answerer is composed` | 服务自己的默认 `unavailable` → `denied-by-host` / `approval-unavailable` |
-| 根本没有通道 | `records the same question as a denial when no channel can surface it` | Jey 直接记 `deny` + `approval-channel-absent`，原始成因保留在同一行里 |
+| 根本没有通道 | `records the same question as a denial when no channel can surface it` | Jev 直接记 `deny` + `approval-channel-absent`，原始成因保留在同一行里 |
 
 审批结论取自宿主持久事件对 `approval/asked` + `approval/decided`（经公开的
 `ctx.on('session/event')`），不是从 `tools/result` 的错误文本猜的——那两种情况在结果层面长得一样。
@@ -174,10 +174,10 @@ D0：交接包原件 25 个文件全部按自带 `SHA256SUMS.txt` 复核通过�
 
 ## 2026-09-27 只读 doctor（规格 §11）
 
-`pnpm --filter jey-adapter-dsh run doctor -- --config … [--journal …] [--dsh-home …] [--json]`，
+`pnpm --filter jev-adapter-dsh run doctor -- --config … [--journal …] [--dsh-home …] [--json]`，
 也可从仓库根 `node packages/adapter-dsh/src/doctor-cli.ts …`。报告的是**观测到的**配置、宿主、
 提供方与审计计数，不写、不启动、不下载、不发任务状态。它存在的理由就是上一节那条发现：
-launcher 在装载被拒后继续 serve，所以"配置没问题"和"Jey 在跑"必须是两句话。
+launcher 在装载被拒后继续 serve，所以"配置没问题"和"Jev 在跑"必须是两句话。
 
 本机两次真实运行：
 
@@ -203,27 +203,27 @@ PACK-02（版本不匹配要明确报告、不宣称兼容）因此从 NOT_RUN �
 | 案例 | 关键断言 |
 |---|---|
 | HOST-08 | 同名工具全局 + agent 作用域各一份：A 执行作用域定义、B 执行全局定义（body 侧记录证明），两条判定行各自对比**自己作用域被展示的目录** |
-| HOST-09 | `restrict({deny:[…]})` 之后跑两个真回合：Jey 引起的 `register`/`restrict` 次数为 0（钩子本身另断言是活的），被藏起来的工具没有被"复活" |
+| HOST-09 | `restrict({deny:[…]})` 之后跑两个真回合：Jev 引起的 `register`/`restrict` 次数为 0（钩子本身另断言是活的），被藏起来的工具没有被"复活" |
 | HOST-10 | 父 + 两个子各得一条判定行和一条执行行（`requestId` 互不相同）；三次父尝试里叶子 body 恰好跑 5 次，第 3 次的第二个子调用被 path-paused 拦下 |
 | HOST-11 | 不带 agent 的调用仍然被判定并记录，作用域写作 `agentless` |
 | HOST-14 | 一次判定只开一个审批问题；`APPROVAL_WITHOUT_HOST_CHANNEL` 让"要审批但宿主没通道"的配置装载失败 |
 | SEC-02 | 描述与参数描述里写满改端点/换模型/放 egress/打印密钥的指令：发出体里没有这些文本、题集仍是固定模板、`runtime.config` 逐项相等、fetch 计数 0 |
-| LIFE-07 | Jey 自己不制造 `tools/change`；摘要按作用域刷新，别的 agent 目录变了不把在途判定判成 stale |
+| LIFE-07 | Jev 自己不制造 `tools/change`；摘要按作用域刷新，别的 agent 目录变了不把在途判定判成 stale |
 
 **HOST-10 的边界**：桥本身没跑。`@deepseek-ai/dsh-ptc-runtime@0.1.7-alpha.2` 只发布抽象
 Service 定义，锁文件里没有任何实现包，`run_code` 在这种树上进不去。用例走的是桥所用的同一个
 入口（`ToolRuntime.execute` 带上父的 `rootCallId` 与 `token`），管线各阶段一致，但那是
 "同一条管线的嵌套调用"，不是"PTC 桥"。所以 HOST-10 写 PARTIAL。
 
-**HOST-14 的已知缺口**：注册在 Jey 之前的监听器如果直接返回拒绝而不往下走，Jey 根本不会被
-问到——调用照样被拦（没有放宽权限），但 Jey 的日志里不会出现这条拒绝。写成了测试
+**HOST-14 的已知缺口**：注册在 Jev 之前的监听器如果直接返回拒绝而不往下走，Jev 根本不会被
+问到——调用照样被拦（没有放宽权限），但 Jev 的日志里不会出现这条拒绝。写成了测试
 （`is not consulted when a plugin mounted earlier refuses the call`），没有当成缺陷修掉，
 因为在一个多插件 waterfall 里这不是我们能补的位置。
 
 **顺带把 §8.2 的时序 gate 量完了**（原来只是读源码得出的结论）：
 `shows that a restriction made inside pre-step reaches only the next assembly`。
 在 `agent/pre-step` 里 `restrict({deny:[probe]})` 之后，本步的 assembly 仍然带着这个工具，
-而派发时已经解析不到它 —— 工具体不跑，宿主给出一个错误结果。Jey 这条调用上正常被问到、
+而派发时已经解析不到它 —— 工具体不跑，宿主给出一个错误结果。Jev 这条调用上正常被问到、
 投了 `abstain`（宿主 `allow`），执行行却是 `failed`：一层在自己刚刚认可过的调用上遇到了
 无法解释的失败。这就是"筛选只能落在 `system-prompt/assemble`"的实证理由，也是
 `presentationFilter` 继续拒绝装载的原因（缺实现，不缺认知）。
@@ -268,7 +268,7 @@ Service 定义，锁文件里没有任何实现包，`run_code` 在这种树上�
 
 14. **会话配额按 agent 键控**：`sessionKey` 原本是 `session:${sessionId}/${agentId}`，等于每个子 agent 都带一份新的会话额度，`perSessionCalls` 上限形同虚设。写账本单测时才暴露，改成只按 sessionId 键控。
 15. 公平性上限一开始是我推导出来的公式（`min(maxQueue, maxConcurrent)`），结果在 `maxConcurrent = 1` 时每个会话最多只能排 1 个，轮转策略**永远观察不到差异**——测试无论如何都会绿。改成协调器的显式参数 `maxQueuePerSession`，让策略本身可测。
-16. 我在截断路径的宿主测试里断言了"shadow 下工具体照常执行"，实际没执行——原因是我把参数撑宽后违反了探针工具自己的 schema，宿主在 Jey 之前就拒了。这是个无关原因造成的"假失败"，去掉该断言并写明：拒自 Jey 还是拒自宿主，看审计记录的 `reasonCodes` 就能分辨。
+16. 我在截断路径的宿主测试里断言了"shadow 下工具体照常执行"，实际没执行——原因是我把参数撑宽后违反了探针工具自己的 schema，宿主在 Jev 之前就拒了。这是个无关原因造成的"假失败"，去掉该断言并写明：拒自 Jev 还是拒自宿主，看审计记录的 `reasonCodes` 就能分辨。
 
 M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码读出来的）：
 
@@ -281,15 +281,15 @@ M3 local 服务这一轮新增（全部由真实执行暴露，不是读代码�
 23. 两处纯粹是我打错的字：包名写成 `semi_phase1`（正确是 `semif_phase1`，4 处）；`evaluate()` 的 Python 补丁里我把 `class Job:` 连同 `__slots__` 一起替换成了重复的 `class Decider:`，靠回读文件才没留下破损源码。**同类错误的防线还是那条：改完立刻读回来看，别信工具说"成功"。**
 24. `is_loopback_host` 一开始接受 `localhost` 与 `ip6-localhost`，把边界交给了解析器和 `/etc/hosts`。改成只认 `127.x.x.x` 与 `::1` 字面量，与 TS 客户端的 `isLoopbackEndpoint` 对齐。
 25. `LocalOptions.requestTimeoutMs` 声明了但从未被读——一个看起来能调、实际无效的全局超时，而且和"超时只来自请求剩余预算"的设计相矛盾。删掉，不是补上。
-26. **`provider.local.expectedModel` 是个纯装饰字段**：schema 要求它、`config.ts` 给它建了类型、`loadConfig` 校验它的形状，但从头到尾**没有任何一处把它和服务自报的身份对比过**。也就是说，本机跑着另一个 checkpoint（换了文件、换了量化、被人替掉），Jey 照样把任务状态发过去。写服务的时候为了对齐 `sha256:` 前缀才撞见。现在由 `ExpectedProvider` 在**发第一个请求之前**探 `capabilities()` 逐字段比对，不匹配即 `UNSUPPORTED_CAPABILITY`、不可重试、提供方调用数保持 0；探测不带任务状态，所以代价不是内容外泄。这跟早先 `perTurnCalls`"配置里有但没人执行"是同一类洞：**声明了的控制必须找到执行它的那行代码，否则它只是文档。**
+26. **`provider.local.expectedModel` 是个纯装饰字段**：schema 要求它、`config.ts` 给它建了类型、`loadConfig` 校验它的形状，但从头到尾**没有任何一处把它和服务自报的身份对比过**。也就是说，本机跑着另一个 checkpoint（换了文件、换了量化、被人替掉），Jev 照样把任务状态发过去。写服务的时候为了对齐 `sha256:` 前缀才撞见。现在由 `ExpectedProvider` 在**发第一个请求之前**探 `capabilities()` 逐字段比对，不匹配即 `UNSUPPORTED_CAPABILITY`、不可重试、提供方调用数保持 0；探测不带任务状态，所以代价不是内容外泄。这跟早先 `perTurnCalls`"配置里有但没人执行"是同一类洞：**声明了的控制必须找到执行它的那行代码，否则它只是文档。**
 
-27. **我们记过的"配置被拒 ⇒ 宿主起不来"在固定版 launcher 上不成立**（2026-09-27 实测，见"真实 launcher 核实"一节）。`0.1.7-alpha.1` 把抛错的第三方条目归为"未激活"，只输出一行 warning 然后照常 serve；同一份配置在 `0.1.5-rc.2` 上会中止启动。这不是 Jey 的缺陷，是宿主的装载策略，但后果落在我们头上：**一个配了 enforce 却装载被拒的部署，运行的是"没有 Jey"**，而第三方插件没有任何办法把自己的激活变成必需。
-28. **"Jey 已经装载并在看"此前没有任何可核对的证据**。宿主启动期的日志 exporter 是 `levels:{default:2}`，插件 info 行被过滤；off/shadow 装载成功后什么都不写。现在装载即写一行 `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用），于是"启动后审计里没有 mount 行"就是可判定的"Jey 不在"。
+27. **我们记过的"配置被拒 ⇒ 宿主起不来"在固定版 launcher 上不成立**（2026-09-27 实测，见"真实 launcher 核实"一节）。`0.1.7-alpha.1` 把抛错的第三方条目归为"未激活"，只输出一行 warning 然后照常 serve；同一份配置在 `0.1.5-rc.2` 上会中止启动。这不是 Jev 的缺陷，是宿主的装载策略，但后果落在我们头上：**一个配了 enforce 却装载被拒的部署，运行的是"没有 Jev"**，而第三方插件没有任何办法把自己的激活变成必需。
+28. **"Jev 已经装载并在看"此前没有任何可核对的证据**。宿主启动期的日志 exporter 是 `levels:{default:2}`，插件 info 行被过滤；off/shadow 装载成功后什么都不写。现在装载即写一行 `diagnostic / mounted:mode=… provider=… egress=…`（不含端点、路径、凭据引用），于是"启动后审计里没有 mount 行"就是可判定的"Jev 不在"。
 
-29. **执行状态集合里三个值没人能产出**：`ExecutionOutcome['status']` 声明了 `denied-by-host` / `cancelled` / `not-dispatched`，而适配器的映射只有 `isError ? 'failed' : 'succeeded'`，且被 Jey 拒掉的调用**根本不写执行行**。后果是"人说了不"、"工具自己崩了"、"Jey 拦下了"三种事实在日志里同形，而"没写行"既可能是拒绝也可能是被淘汰。写审批测试时才会撞上：授予和拒绝的结果都是 `isError`。现在五个状态都有产出的代码路径，并且用 sabotage 验证过（去掉会话事件关联，两条审批测试立刻变红）。
-30. **`approvalChannel` 曾经只影响两条分支**：`required-check-unavailable` 与 `stale-snapshot` 会因没有通道而降级为 `deny`，三个概率分支却硬编码 `ask`。于是"没有审批服务"这件事由宿主在我们之外完成，Jey 的记录里连痕迹都没有。现在统一走 `escalate()`：能问就问，不能问就自己判 `deny` 并附 `approval-channel-absent`，原始成因保留在同一条 `reasonCodes` 里。
+29. **执行状态集合里三个值没人能产出**：`ExecutionOutcome['status']` 声明了 `denied-by-host` / `cancelled` / `not-dispatched`，而适配器的映射只有 `isError ? 'failed' : 'succeeded'`，且被 Jev 拒掉的调用**根本不写执行行**。后果是"人说了不"、"工具自己崩了"、"Jev 拦下了"三种事实在日志里同形，而"没写行"既可能是拒绝也可能是被淘汰。写审批测试时才会撞上：授予和拒绝的结果都是 `isError`。现在五个状态都有产出的代码路径，并且用 sabotage 验证过（去掉会话事件关联，两条审批测试立刻变红）。
+30. **`approvalChannel` 曾经只影响两条分支**：`required-check-unavailable` 与 `stale-snapshot` 会因没有通道而降级为 `deny`，三个概率分支却硬编码 `ask`。于是"没有审批服务"这件事由宿主在我们之外完成，Jev 的记录里连痕迹都没有。现在统一走 `escalate()`：能问就问，不能问就自己判 `deny` 并附 `approval-channel-absent`，原始成因保留在同一条 `reasonCodes` 里。
 
-31. **"宿主的拒绝被读成允许"没有任何测试能发现**：单调合并在 core 里是对的，但适配器读宿主决定的那行 `fromPreTool` 在 core 之外；删掉它的 `deny` 分支，typecheck 与全部测试照绿，工具体照跑。补了 `keeps a later listener’s denial ahead of what Jey decides`（在 Jey 之后注册一个返回 `deny` 的 waterfall 监听器），并用"删掉分支→测试变红"验证它确实钉得住。
+31. **"宿主的拒绝被读成允许"没有任何测试能发现**：单调合并在 core 里是对的，但适配器读宿主决定的那行 `fromPreTool` 在 core 之外；删掉它的 `deny` 分支，typecheck 与全部测试照绿，工具体照跑。补了 `keeps a later listener’s denial ahead of what Jev decides`（在 Jev 之后注册一个返回 `deny` 的 waterfall 监听器），并用"删掉分支→测试变红"验证它确实钉得住。
 
 32. **shadow 在"快照过期"这条路上会拦下调用**：概率分支都经过 `evaluatePolicy` 的 mode 出口，唯独 stale 分支自己拼了 `ask`/`deny` 交给宿主，完全没看 mode——于是 shadow 模式下一次在途的状态移动就把工具体拦死了，而 shadow 的定义就是"我的判断只作观察"。这跟最早那条"shadow 不惰性"是同一个形状的复发。修成：shadow 交回宿主原本的决定，`enforce` 才升级；两条都写成了具名测试。
 33. **`features.approvalRequests` 只在装载时被检查**：`contradictions()` 用它拒绝"要审批但宿主没通道"的配置，然后运行期再没人读它——关掉它的部署照样在宿主有审批服务时弹窗。现在通道 = 宿主有服务 **且** 开关打开，缺任一侧都降级为拒绝；`does not prompt when approval requests are switched off, even on a capable host` 直接数应答者被调用次数（0）。
@@ -317,7 +317,7 @@ MCP 这一轮新增（35–39）。共同点还是老毛病：**声明了的东�
 | `presentationFilter`（硬筛选的实现） | **NOT_IMPLEMENTED** | 时序 gate 本身已在 2026-09-27 实测清楚（restrict 落在 pre-step 晚了一步，见 §4）；缺的是把筛选写进 `system-prompt/assemble`，配置目前直接拒绝启用 |
 | 宿主级 egress 拒绝（真实提供方） | **NOT_RUN** | 现在具备条件：local 服务可以真跑，M5 补 |
 | MCP 侧的审计 journal | **NOT_IMPLEMENTED** | 规范 §12 没给 MCP 规定 journal，所以没写；后果是"有效性证据"只在 DSH 那条路上成立，已在 `docs/INSTALL_MCP.md` 的已知边界里写明 |
-| MCP schema 与 `jey-contracts` 的生成关系 | **PARTIAL** | §12 要求"与核心契约同源生成"。现在是手写的单一来源（发布的就是校验的，有测试），类型→JSON Schema 的生成器缺 |
+| MCP schema 与 `jev-contracts` 的生成关系 | **PARTIAL** | §12 要求"与核心契约同源生成"。现在是手写的单一来源（发布的就是校验的，有测试），类型→JSON Schema 的生成器缺 |
 | 评测（M6）、最终报告（M8） | **NOT_STARTED** | — |
 | secret-scan / pack-install / CI | **NOT_RUN** | M5/M7 |
 | 上传 | 授权范围：可 push 到 feature 分支，**不可** push `main`、不可 publish npm、不可向第三方仓库发 PR |

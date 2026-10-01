@@ -13,11 +13,11 @@ import os
 import unittest
 from pathlib import Path
 
-from local_decider.lock import load_lock, verify_weights
+from local_decider.lock import default_data_root, load_lock, verify_weights
 from local_decider.scoring import LocalScorer, answer_for, evaluate, options_for
 
 LOCK = load_lock()
-ROOT = LOCK.path.parents[1]
+ROOT = default_data_root()
 CHECK = verify_weights(LOCK, ROOT)
 REQUIRED = os.environ.get("JEY_RUN_INFERENCE") == "1"
 REASON = ("weights do not match the lock" if not CHECK["matches"]

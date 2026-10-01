@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseAuditLine } from 'jey-core'
+import { parseAuditLine } from 'jev-core'
 import { fileLineSink } from '../../src/jey-plugin.ts'
 
 function tempPath(): { dir: string; path: string } {

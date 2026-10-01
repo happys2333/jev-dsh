@@ -18,11 +18,11 @@ from pathlib import Path
 # this host and its partial state is not resumable from the caller's side.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
-from .lock import load_lock, verify_weights  # noqa: E402
+from .lock import default_data_root, load_lock, verify_weights  # noqa: E402
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
+    return default_data_root()
 
 
 def run(lock_path: Path | None, repo_root: Path, dry_run: bool) -> int:
@@ -59,7 +59,9 @@ def run(lock_path: Path | None, repo_root: Path, dry_run: bool) -> int:
     target.parent.mkdir(parents=True, exist_ok=True)
     cached = Path(hf_hub_download(
         lock.weights_repository, lock.weights_file, revision=lock.weights_revision, **common
-    ))
+    )).resolve(strict=True)
+    # HF snapshot entries are relative symlinks on Linux. Linking the snapshot
+    # entry in another directory can leave a dangling target; link its real file.
     if not target.exists() or target.stat().st_size != lock.weights_bytes:
         try:
             os.link(cached, target)
@@ -81,7 +83,11 @@ def main(argv=None) -> int:
     parser.add_argument("--repo-root", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    return run(args.lock, args.repo_root or _repo_root(), args.dry_run)
+    try:
+        root = args.repo_root or _repo_root()
+    except ValueError as error:
+        parser.error(str(error))
+    return run(args.lock, root, args.dry_run)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
-import type { JsonValue, SnapshotRef } from 'jey-contracts'
+import type { JsonValue, SnapshotRef } from 'jev-contracts'
 import { digestJson } from './canonical.ts'
 
 /**
  * Snapshot construction and freshness, spec sections 4.2 and 10.1.
  *
- * A snapshot is the record of what Jey was actually shown. It is not an
+ * A snapshot is the record of what Jev was actually shown. It is not an
  * authorization: nothing in here may widen what the host permits, and a
  * constraint summary is model input, not an enforceable rule.
  */

@@ -22,7 +22,7 @@
     "allowedPurposes": ["tool-assessment"]
   },
   "limits": {
-    "deadlineMs": 10000
+    "deadlineMs": 60000
   },
   "features": {
     "toolAssessment": true

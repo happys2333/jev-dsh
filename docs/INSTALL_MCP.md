@@ -1,10 +1,10 @@
-# 以 MCP 服务运行 Jey
+# 以 MCP 服务运行 Jev
 
 本文对应的实现是 `packages/adapter-mcp`，验收案例是交接包 `contracts/test-matrix.csv` 的 `mcp-contract` 5 条与规范 §12。文中每条"已经过"都指到一个具名测试或一次真实运行；做过的与没做的分开写。
 
 ## 这是什么，不是什么
 
-Jey 通过 stdio 暴露**三个判断工具**，供任何 MCP 客户端调用。规范 §12 的原话是"MCP 是能力暴露，不是对所有 Agent 的透明拦截"，所以：
+Jev 通过 stdio 暴露**三个判断工具**，供任何 MCP 客户端调用。规范 §12 的原话是"MCP 是能力暴露，不是对所有 Agent 的透明拦截"，所以：
 
 | 它做 | 它不做 |
 |---|---|
@@ -24,7 +24,7 @@ Jey 通过 stdio 暴露**三个判断工具**，供任何 MCP 客户端调用。
 ## 起服务
 
 ```sh
-node packages/adapter-mcp/dist/main.js --config <一份 Jey 配置>   # 构建产物，等同 bin
+node packages/adapter-mcp/dist/main.js --config <一份 Jev 配置>   # 构建产物，等同 bin
 node packages/adapter-mcp/src/main.ts --config <同一份配置>       # 从源跑，测试用的就是这条
 ```
 
@@ -52,7 +52,7 @@ node packages/adapter-mcp/src/main.ts --config <同一份配置>       # 从源�
 
 - **`endpoint` 写的是服务的 origin**，不带路径：客户端自己拼 `/v1/capabilities` 与 `/v1/decide`。写成 `…/v1/decide` 会让能力探测打到 `/v1/decide/v1/capabilities`，得到一个 404 伪装成"这个模型不支持这类问题"。这条在 `test/unit/tools.test.ts` 的注释里也写了，因为它一开始就是把测试自己骗过去的坑。
 - **`provider.kind: typesafe` 在这里被拒绝启动**，报错指向本文（`src/provider.ts`）。云端这条路在本仓库仍是 `BLOCKED`（无凭据、无预算），而一个常驻的 stdio 进程从环境里读出 key、开始外发状态，正是规范 §12 禁止的那种"发现了就切过去"。
-- **`ownership: managed` 被拒绝**：Jey 从不启动、重启、下载推理服务。先把 `python/local_decider` 自己跑起来，再用 `external`。
+- **`ownership: managed` 被拒绝**：Jev 从不启动、重启、下载推理服务。先把 `python/local_decider` 自己跑起来，再用 `external`。
 - `mode: enforce` + `provider.kind: mock` 依旧在装载期拒绝（`ENFORCE_WITH_MOCK`）。
 - 凭据只写引用（`env:` / `file:`）。`keystore:` 在 MCP 这条路明确报不支持——它没有钥匙串会话可用。
 
@@ -77,13 +77,13 @@ node packages/adapter-mcp/src/main.ts --config <同一份配置>       # 从源�
 
 ## 三个工具
 
-`tools/list` 发布的 `inputSchema` 与处理调用时编译的 schema 是**同一个对象**（`src/schema.ts` 是唯一来源，`test/unit/schema.test.ts` 有一条断言"发布的那份就是校验的那份"）。交接包 §12 里叫 `adl_check`/`adl_choose`/`adl_rank`，本仓库发的是 `jey_check`/`jey_choose`/`jey_rank`，映射写在 `LEGACY_TOOL_NAMES` 里并有测试覆盖。
+`tools/list` 发布的 `inputSchema` 与处理调用时编译的 schema 是**同一个对象**（`src/schema.ts` 是唯一来源，`test/unit/schema.test.ts` 有一条断言"发布的那份就是校验的那份"）。交接包 §12 里叫 `adl_check`/`adl_choose`/`adl_rank`，本仓库发的是 `jev_check`/`jev_choose`/`jev_rank`，映射写在 `LEGACY_TOOL_NAMES` 里并有测试覆盖。
 
 | 工具 | 输入 | 输出（`structuredContent`） |
 |---|---|---|
-| `jey_check` | `claim`、`evidence` | `kind:'boolean'`、`pYes`、`probability{origin,calibration,calibrationId}`、`abstained`、`provider{kind,resolvedModel,synthetic}` |
-| `jey_choose` | `instruction`、`options[2..16]{id,description}`、可选 `context` | `selected`（没有合适项时是 `none-applicable`）、完整 `probabilities`、`abstained` |
-| `jey_rank` | `instruction`、`candidates[0..32]{id,text}`、可选 `levels` | 每个候选的 `expectedIndex`（Σ 索引×概率，允许小数；没答案时是 `null`）与 `ordering`；`noneApplicable` |
+| `jev_check` | `claim`、`evidence` | `kind:'boolean'`、`pYes`、`probability{origin,calibration,calibrationId}`、`abstained`、`provider{kind,resolvedModel,synthetic}` |
+| `jev_choose` | `instruction`、`options[2..16]{id,description}`、可选 `context` | `selected`（没有合适项时是 `none-applicable`）、完整 `probabilities`、`abstained` |
+| `jev_rank` | `instruction`、`candidates[0..32]{id,text}`、可选 `levels` | 每个候选的 `expectedIndex`（Σ 索引×概率，允许小数；没答案时是 `null`）与 `ordering`；`noneApplicable` |
 
 三份 schema 都 `additionalProperties: false`，并且**没有**任何字段能装下 sessionId、host-attested 标志、endpoint、模型路径、key 引用或策略模式。每个工具的 `purpose` 由工具本身固定（`evidence-check` / `explicit-query` / `tool-relevance`），调用方不能挑一个来绕开按 purpose 的 egress 规则。三个工具都带 `annotations.readOnlyHint: true`、`openWorldHint: false`。
 
@@ -102,12 +102,12 @@ node packages/adapter-mcp/src/main.ts --config <同一份配置>       # 从源�
 
 - 每次调用都过 `checkEgress`（与 DSH 适配器同一个函数、同一份配置语义），在提供方被问之前。`egress.mode: deny` 下返回 `EGRESS_DENIED`，且测试断言提供方的调用计数仍为 0。
 - 额度由 `DecisionCoordinator` 按 `limits` 执行：并发、队列、`deadlineMs`（含排队时间）、每回合与每会话次数、同一 session 的排队上限。
-- 客户端取消（SDK 的 `signal`，或 `notifications/cancelled`）会中止 Jey 发往提供方的那个 HTTP 请求。`MCP-05` 是端到端证明：本地服务先把连接吊住不收口，测试观察到它自己的 socket 被对端挂断，然后第二次调用必须在同一个 `maxConcurrent: 1` 的服务下真的跑到提供方（拿到 `LOCAL_NOT_READY` 而不是排队饿死）。这一条对旧代码会变红——把 `signal` 换成一个永不中止的控制器它就不过。
+- 客户端取消（SDK 的 `signal`，或 `notifications/cancelled`）会中止 Jev 发往提供方的那个 HTTP 请求。`MCP-05` 是端到端证明：本地服务先把连接吊住不收口，测试观察到它自己的 socket 被对端挂断，然后第二次调用必须在同一个 `maxConcurrent: 1` 的服务下真的跑到提供方（拿到 `LOCAL_NOT_READY` 而不是排队饿死）。这一条对旧代码会变红——把 `signal` 换成一个永不中止的控制器它就不过。
 - 客户端把 stdin 关掉之后，服务进程以 **exit code 0** 退出（`MCP-02` 断言）。这一点在"调用还在途"时同样成立：`MCP-05b` 让本地服务把连接吊住不收口、客户端直接消失，进程仍要在 4 秒内自己退掉——旧代码做不到（协调器 close 之前没人注意到客户端走了，进程被那条未完成的 HTTP 请求吊着），这也是 `src/main.ts` 里那行 `process.stdin.once('end', …)` 存在的原因。stdout 上每一行都得是 JSON-RPC 帧，日志只去 stderr。
 
 ## 一次真实会话（证据）
 
-`artifacts/mcp_stdio_session.json` 是一次真实 stdio 会话的原样记录，由 `node scripts/mcp_stdio_transcript.mjs` 重新生成（临时配置路径已改写）。`initialize` → `notifications/initialized` → `tools/list` → 一次成功的 `jey_check` → 一次缺 `evidence` 的调用 → 一次未知工具。里面可直接核对的几点：
+`artifacts/mcp_stdio_session.json` 是一次真实 stdio 会话的原样记录，由 `node scripts/mcp_stdio_transcript.mjs` 重新生成（临时配置路径已改写）。`initialize` → `notifications/initialized` → `tools/list` → 一次成功的 `jev_check` → 一次缺 `evidence` 的调用 → 一次未知工具。里面可直接核对的几点：
 
 - stdout 恰好 5 帧，全部是 JSON-RPC；stderr 两行：`jey-mcp: listening on stdio (mode=shadow provider=mock egress=deny)` 和收尾的 `jey-mcp: stdin ended; closing the coordinator and exiting`；
 - 成功那次的答案带 `"provider":{"kind":"mock","resolvedModel":"mock-static","synthetic":true}`；
@@ -119,15 +119,15 @@ node packages/adapter-mcp/src/main.ts --config <同一份配置>       # 从源�
 1. **没有审计 journal。** DSH 那条路每条判定与每次执行都会落 JSONL 行；MCP 这条路目前只在 stderr 写诊断。规范 §12 没有给 MCP 规定 journal，但"有效性证据"这件事因此只在 DSH 侧成立——不要把 MCP 的返回当成审计记录。
 2. **没有 doctor。** 只读诊断命令（`packages/adapter-dsh/src/doctor-cli.ts`）读的是 DSH 的 home 与 launcher 版本，对 MCP 客户端没有对应物；MCP 侧唯一的启动期检查就是 `loadConfig` 拒绝矛盾配置。
 3. **一个进程一个身份。** 快照身份固定是 `sessionId: 'mcp'`、`agentId: 'mcp'`（`src/tools.ts` 的 `factsFor`），因此 `perSessionCalls` 是**整个服务进程**的额度，不是每个客户端一份。多客户端共用一个 jey-mcp 时这会是先耗尽的那条限制。
-4. **schema 是手写的单源，不是从 `jey-contracts` 生成的。** 规范 §12 要求"inputSchema、outputSchema 与核心契约同源生成"；现在满足的是"发布的那份就是校验的那份"（有测试），以及输出 schema 必须带 `provider{kind,resolvedModel,synthetic}` 与 `abstained`（有测试）。类型→JSON Schema 的生成器还没有，这一条记在 `docs/STATUS.md`。
+4. **schema 是手写的单源，不是从 `jev-contracts` 生成的。** 规范 §12 要求"inputSchema、outputSchema 与核心契约同源生成"；现在满足的是"发布的那份就是校验的那份"（有测试），以及输出 schema 必须带 `provider{kind,resolvedModel,synthetic}` 与 `abstained`（有测试）。类型→JSON Schema 的生成器还没有，这一条记在 `docs/STATUS.md`。
 5. **Claude Code / OpenCode 那类原生 hooks 适配是后续任务。** 这里跑通的是"独立 MCP 客户端能握手、列表、调用"，不是那些宿主的自动接入。
 6. **云端提供方未接线**（`BLOCKED`，无 key 无预算）。
 
 ## 怎么复核
 
 ```sh
-pnpm --filter jey-adapter-mcp test        # 27 条：19 单元 + 8 条真实 stdio 契约
-pnpm --filter jey-adapter-mcp typecheck
+pnpm --filter jev-adapter-mcp test        # 27 条：19 单元 + 8 条真实 stdio 契约
+pnpm --filter jev-adapter-mcp typecheck
 ```
 
 契约测试会 spawn 真实子进程、用官方 `@modelcontextprotocol/sdk` 的 `Client` 走 stdio，并在测试进程里起一个真实 HTTP 监听冒充本地推理服务。没有 mock 传输层。

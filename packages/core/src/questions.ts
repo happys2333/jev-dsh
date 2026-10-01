@@ -1,4 +1,4 @@
-import type { JsonValue, Question } from 'jey-contracts'
+import type { JsonValue, Question } from 'jev-contracts'
 
 /**
  * Question compilation, spec sections 3.2, 7.1 and 8.1.

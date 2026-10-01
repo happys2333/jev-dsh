@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1",
+  "mode": "shadow",
+  "provider": {"kind": "typesafe", "typesafe": {
+    "model": "jev-latest", "credentialRef": "env:TYPESAFE_API_KEY", "endpointOrigin": "https://api.typesafe.ai"
+  }},
+  "egress": {
+    "mode": "allowlist", "allowedOrigins": ["https://api.typesafe.ai"], "allowedPurposes": ["tool-assessment"],
+    "destinations": [{"id": "jev-cloud", "endpoint": "https://api.typesafe.ai", "purposes": ["tool-assessment"], "fields": ["policy", "call", "results", "chat"]}]
+  },
+  "limits": {}, "features": {"toolAssessment": true}, "audit": {}
+}

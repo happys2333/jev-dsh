@@ -152,7 +152,7 @@ class ReadyAndRejectionTest(ServiceCase):
 
     def test_the_server_identifies_itself_without_a_python_version(self) -> None:
         response, _ = self.call("GET", "/health/live")
-        self.assertEqual(response.getheader("server"), "jey-local-decider")
+        self.assertEqual(response.getheader("server"), "jev-local-decider")
         self.assertIsNone(response.getheader("access-control-allow-origin"))
 
     def test_every_endpoint_but_live_requires_the_token(self) -> None:

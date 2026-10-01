@@ -1,8 +1,8 @@
 {
-  "name": "jey-adapter-dsh",
+  "name": "jev-adapter-dsh",
   "version": "0.0.0",
   "private": true,
-  "description": "Jey DSH host adapter: the only package allowed to import DSH/Cordis. Host contract probes live here.",
+  "description": "Jev DSH host adapter: the only package allowed to import DSH/Cordis. Host contract probes live here.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -28,14 +28,34 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-tools": "0.1.7-alpha.1",
     "@deepseek-ai/dsh-user-approval": "0.1.7-alpha.1",
-    "jey-contracts": "workspace:*",
-    "jey-core": "workspace:*",
-    "jey-provider-local": "workspace:*",
-    "jey-provider-mock": "workspace:*",
-    "jey-provider-typesafe": "workspace:*"
+    "jev-contracts": "workspace:*",
+    "jev-core": "workspace:*",
+    "jev-provider-local": "workspace:*",
+    "jev-provider-mock": "workspace:*",
+    "jev-provider-typesafe": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.1",
     "typescript": "5.9.3"
+  },
+  "main": "./dist/src/jev-plugin.js",
+  "types": "./dist/src/jev-plugin.d.ts",
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "dist/src/**/*.js.map",
+    "dist/src/**/*.d.ts.map"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/jev-plugin.d.ts",
+      "default": "./dist/src/jev-plugin.js"
+    },
+    "./jev-plugin": "./dist/src/jev-plugin.js",
+    "./jey-plugin": "./dist/src/jey-plugin.js",
+    "./dist/src/*": "./dist/src/*"
+  },
+  "bin": {
+    "jev-dsh-doctor": "dist/src/doctor-cli.js"
   }
 }

@@ -1,8 +1,8 @@
 {
-  "name": "jey-contracts",
+  "name": "jev-contracts",
   "version": "0.0.0",
   "private": true,
-  "description": "Jey public boundary types. No DSH, Cordis or provider imports belong here.",
+  "description": "Jev public boundary types. No DSH, Cordis or provider imports belong here.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,7 +12,13 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts.map",
+    "src/**/*.ts"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

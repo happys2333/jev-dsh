@@ -1,7 +1,7 @@
 /**
- * Jey v1 public boundary types.
+ * Jev v1 public boundary types.
  *
- * These are Jey's own contract, not DSH APIs. Nothing here may import DSH, Cordis,
+ * These are Jev's own contract, not DSH APIs. Nothing here may import DSH, Cordis,
  * MCP or a provider SDK: the core has to stay usable from any host.
  *
  * Ported from the handoff's `contracts/core-types.ts` (identical shapes, `adl` ->
@@ -15,7 +15,7 @@ export type Purpose = 'tool-assessment' | 'tool-relevance' | 'evidence-check' | 
 export type Mode = 'off' | 'shadow' | 'enforce';
 export type ProviderKind = 'mock' | 'local' | 'typesafe';
 
-/** Jey never emits an unconditional allow: abstain means "leave the host decision alone". */
+/** Jev never emits an unconditional allow: abstain means "leave the host decision alone". */
 export type DecisionAction = 'abstain' | 'ask' | 'deny' | 'cancel';
 
 /** Identifiers are minted by trusted code, not used as authorization tokens. */
@@ -32,7 +32,7 @@ export interface SnapshotRef {
   readonly observationSequence: number;
 }
 
-/** Jey intentionally starts with string instructions: a subset of provider APIs. */
+/** Jev intentionally starts with string instructions: a subset of provider APIs. */
 export type Question =
   | { readonly kind: 'boolean'; readonly id: string; readonly instructions: string }
   | { readonly kind: 'choice'; readonly id: string; readonly instructions: string;
@@ -153,7 +153,7 @@ export interface ExecutionOutcome {
   readonly status: 'succeeded' | 'failed' | 'denied-by-host' | 'cancelled' | 'not-dispatched';
   /** The host decision that was in force when dispatch happened, if it did. */
   readonly hostDecision: HostDecision | null;
-  /** The Jey action that was applied to it, if any was applied. */
+  /** The Jev action that was applied to it, if any was applied. */
   readonly appliedAction: DecisionAction | null;
   readonly failureCode: string | null;
   readonly observedAt: number;

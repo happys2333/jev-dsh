@@ -17,7 +17,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { parseAuditLine, scanJournal, type AuditEvent } from 'jey-core'
+import { parseAuditLine, scanJournal, type AuditEvent } from 'jev-core'
 import { jeyPlugin } from '../../src/jey-plugin.ts'
 import { probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../src/probe-tool.ts'
 import { PROBE_LLM_ROUTE, scriptedLlmPlugin } from '../../src/scripted-llm.ts'
@@ -227,7 +227,7 @@ describe('jey plugin loaded through its real cordis entry point', () => {
       await ctx.fiber.dispose()
 
       // The mount row is the only thing that distinguishes "the host took this config"
-      // from "Jey was never reached", so it has to survive to the journal.
+      // from "Jev was never reached", so it has to survive to the journal.
       const scan = scanJournal(readFileSync(path, 'utf8'))
       assert.deepEqual(scan.isolated, [], JSON.stringify(scan.isolated))
       const [mounted] = scan.confirmed
@@ -252,7 +252,64 @@ describe('jey plugin loaded through its real cordis entry point', () => {
     await mountAgentLoopTestDependencies(ctx)
     await assert.rejects(
       async () => { await ctx.plugin(jeyPlugin, config({ mode: 'enforce' })) },
-      (e: unknown) => e instanceof Error && /ENFORCE_WITH_MOCK|invalid Jey configuration/.test(e.message),
+      (e: unknown) => e instanceof Error && /ENFORCE_WITH_MOCK|invalid Jev configuration/.test(e.message),
     )
   })
+})
+
+// Real adapter and host loop, deliberately simulated HTTP: no paid cloud inference.
+it('routes an allowlisted assessment through the production Jev provider', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jev-typesafe-'))
+  const path = join(dir, 'audit.jsonl')
+  const previousPath = process.env.JEY_AUDIT_PATH
+  const previousKey = process.env.JEY_TEST_TYPESAFE_KEY
+  const realFetch = globalThis.fetch
+  process.env.JEY_AUDIT_PATH = path
+  process.env.JEY_TEST_TYPESAFE_KEY = 'synthetic-contract-credential'
+  const bodies: Record<string, unknown>[] = []
+  globalThis.fetch = (async (url, init) => {
+    assert.equal(String(url), 'https://api.typesafe.ai/v1/systemone')
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    bodies.push(body)
+    assert.deepEqual(Object.keys(body).sort(), ['model', 'questions', 'state'])
+    assert.equal(body.model, 'jev-latest')
+    const questions = body.questions as Record<string, { type: string }>
+    assert.deepEqual(Object.keys(questions).sort(), ['advances-goal', 'conflicts-with-constraint', 'evidence-sufficient'])
+    assert.ok(Object.values(questions).every(q => q.type === 'noul'))
+    return new Response(JSON.stringify({model: 'jev-1.13.0',
+      answers: Object.fromEntries(Object.keys(questions).map(id => [id, {type: 'noul', noul: id === 'conflicts-with-constraint' ? 0.01 : 0.99}])),
+      usage: {input_tokens: 123, output_tokens: 0},
+    }), {status: 200, headers: {'content-type': 'application/json'}})
+  }) as typeof globalThis.fetch
+  let ctx: Context | undefined
+  try {
+    resetProbeToolBodyCalls()
+    const host = await bootHost()
+    ctx = host.ctx
+    const raw = JSON.parse(readFileSync(new URL('../../../../config/examples/typesafe-shadow.json', import.meta.url), 'utf8'))
+    raw.provider.typesafe.credentialRef = 'env:JEY_TEST_TYPESAFE_KEY'
+    await ctx.plugin(jeyPlugin, raw)
+    const settled = nextIdle(ctx, host.agent)
+    host.agent.followup(createUserMessage({content: [{type: 'text', text: 'inspect this synthetic test'}], source: {kind: 'user'}}))
+    await settled
+    assert.equal(bodies.length, 1)
+    assert.equal(probeToolBodyCalls().length, 1)
+    const scan = scanJournal(readFileSync(path, 'utf8'))
+    assert.deepEqual(scan.isolated, [])
+    const decision = scan.confirmed.find(r => r.kind === 'decision')
+    assert.ok(decision?.kind === 'decision')
+    assert.equal(decision.hostDecision, 'allow')
+    assert.equal(decision.action, 'abstain')
+    assert.equal(decision.egressOccurred, true, 'simulated cloud transport is recorded')
+    assert.ok(!decision.reasonCodes.some(c => c.startsWith('provider:') || c.startsWith('unusable:')), JSON.stringify(decision.reasonCodes))
+    assert.ok(!readFileSync(path, 'utf8').includes('synthetic-contract-credential'))
+  } finally {
+    await ctx?.fiber.dispose()
+    globalThis.fetch = realFetch
+    if (previousPath === undefined) delete process.env.JEY_AUDIT_PATH
+    else process.env.JEY_AUDIT_PATH = previousPath
+    if (previousKey === undefined) delete process.env.JEY_TEST_TYPESAFE_KEY
+    else process.env.JEY_TEST_TYPESAFE_KEY = previousKey
+    rmSync(dir, {recursive: true, force: true})
+  }
 })

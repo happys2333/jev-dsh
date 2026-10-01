@@ -9,7 +9,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { DecisionRequest, Question } from 'jey-contracts'
+import type { DecisionRequest, Question } from 'jev-contracts'
 import { ProviderError, parseAnswer, parseResponse, toWireQuestions, toWireRequest } from '../../src/index.ts'
 
 const fixture = (name: string): unknown =>

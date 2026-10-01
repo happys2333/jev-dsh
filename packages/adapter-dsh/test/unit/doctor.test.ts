@@ -10,7 +10,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import type { ProviderCapabilities } from 'jey-contracts'
+import type { ProviderCapabilities } from 'jev-contracts'
 import { buildDoctorReport, PINNED_LAUNCHER, type DoctorInput, type HostObservation, type ProviderProbe } from '../../src/doctor.ts'
 
 const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
@@ -49,7 +49,7 @@ test('doctor: an unobserved launcher is never reported as compatible', () => {
   assert.notEqual(unknown.compatibility.verdict, 'MATCH')
 })
 
-test('doctor: a journal without a mount row means Jey is not proven to be running', () => {
+test('doctor: a journal without a mount row means Jev is not proven to be running', () => {
   const noMount = buildDoctorReport(input({
     journalText: '{"kind":"diagnostic","auditId":"aud_1","requestId":"","sessionId":"","at":1,"reason":"dropped-late"}\n',
   }))
@@ -151,4 +151,29 @@ test('doctor: counters and isolated lines come from the journal as written', () 
   assert.deepEqual(report.journal.executions, { succeeded: 1, 'not-dispatched': 1 })
   assert.equal(report.journal.isolated, 1)
   assert.deepEqual(report.journal.lastErrors, ['deny:hard-rule-conflict', 'deny:hard-rule:path-paused'])
+})
+
+test('doctor: absent cloud credentials cannot report READY after mounting', () => {
+  const raw = example('typesafe-shadow.json') as {provider: {typesafe: {credentialRef: string}}}
+  raw.provider.typesafe.credentialRef = 'env:JEV_DOCTOR_ABSENT_KEY'
+  const previous = process.env.JEV_DOCTOR_ABSENT_KEY
+  delete process.env.JEV_DOCTOR_ABSENT_KEY
+  try {
+    const report = buildDoctorReport(input({raw, journalText: '{"kind":"diagnostic","auditId":"aud_1","requestId":"","sessionId":"","at":1,"reason":"mounted:mode=shadow provider=typesafe egress=allowlist"}\n'}))
+    assert.equal(report.verdict, 'NOT_READY')
+    assert.ok(report.reasons.some(r => r.startsWith('credential-not-configured:')))
+    assert.equal(report.provider.probed, false)
+  } finally {
+    if (previous !== undefined) process.env.JEV_DOCTOR_ABSENT_KEY = previous
+  }
+})
+
+test('doctor: unknown launcher and the latest differing mount fail readiness', () => {
+  assert.equal(buildDoctorReport(input({host: {...pinned, launcherVersion: null}})).verdict, 'NOT_READY')
+  const oldMount = '{"kind":"diagnostic","auditId":"old","requestId":"","sessionId":"","at":1,"reason":"mounted:mode=off provider=unconfigured egress=deny"}\n'
+  const newMount = '{"kind":"diagnostic","auditId":"new","requestId":"","sessionId":"","at":2,"reason":"mounted:mode=shadow provider=mock egress=deny"}\n'
+  const report = buildDoctorReport(input({journalText: oldMount + newMount}))
+  assert.equal(report.verdict, 'NOT_READY')
+  assert.equal(report.journal.mountRow, 'mounted:mode=shadow provider=mock egress=deny')
+  assert.ok(report.reasons.some(r => r.startsWith('journal-config-mismatch:')))
 })

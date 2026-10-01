@@ -1,4 +1,4 @@
-import type { DecisionRequest } from 'jey-contracts'
+import type { DecisionRequest } from 'jev-contracts'
 
 /**
  * Call budgets, spec section 10.4.

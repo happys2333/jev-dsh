@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 // `default` binding arrives as the module namespace object and is not constructable.
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import type { ErrorObject } from 'ajv'
-import type { Mode, Purpose } from 'jey-contracts'
+import type { Mode, Purpose } from 'jev-contracts'
 import type { Destination } from './egress.ts'
 
 /**
@@ -20,7 +20,7 @@ import type { Destination } from './egress.ts'
  * the document and the code cannot drift apart.
  */
 
-export const SCHEMA_PATH = fileURLToPath(new URL('../../../config/config.schema.json', import.meta.url))
+export const SCHEMA_PATH = fileURLToPath(new URL('../config/config.schema.json', import.meta.url))
 
 export type ProviderKindConfig = 'unconfigured' | 'mock' | 'local' | 'typesafe'
 
@@ -109,7 +109,7 @@ export type ConfigResult =
 export class ConfigError extends Error {
   readonly errors: readonly ConfigIssue[]
   constructor(errors: readonly ConfigIssue[]) {
-    super(`invalid Jey configuration: ${errors.map(e => `${e.code}@${e.path}`).join(', ')}`)
+    super(`invalid Jev configuration: ${errors.map(e => `${e.code}@${e.path}`).join(', ')}`)
     this.name = 'ConfigError'
     this.errors = errors
   }
@@ -226,7 +226,7 @@ function contradictions(config: JeyConfig, host: HostCapabilities): ConfigIssue[
   }
   if (config.provider.kind === 'local' && config.provider.local?.ownership === 'managed') {
     push('OWNERSHIP_NOT_IMPLEMENTED', '/provider/local/ownership',
-      'Jey never launches, restarts or downloads a service; run it yourself and use ownership=external')
+      'Jev never launches, restarts or downloads a service; run it yourself and use ownership=external')
   }
   if (config.calibration !== undefined) {
     const missing = config.calibration.appliesTo === undefined
@@ -279,3 +279,6 @@ export function reloadDecision(previous: JeyConfig | null, next: JeyConfig, gene
   const changed = previous === null || JSON.stringify(previous) !== JSON.stringify(next)
   return { changed, generation: changed ? generation + 1 : generation, policyVersion }
 }
+
+/** Preferred spelling, preserving the legacy public type. */
+export type JevConfig = JeyConfig

@@ -1,6 +1,6 @@
 # Running the host probe
 
-`pnpm --filter jey-adapter-dsh typecheck` then `pnpm --filter jey-adapter-dsh test`, run from
+`pnpm --filter jev-adapter-dsh typecheck` then `pnpm --filter jev-adapter-dsh test`, run from
 the repo root (`D:\codeWork\jev-dsh\repo`). Both are offline: `test/host/ordering.test.ts`
 builds a real Cordis context, mounts the published DSH services through
 `@deepseek-ai/dsh-agent-loop-testkit`, registers `src/scripted-llm.ts` as the only model

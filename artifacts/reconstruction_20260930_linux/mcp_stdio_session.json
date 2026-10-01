@@ -1,0 +1,82 @@
+{
+  "note": "One real stdio session against the MCP server. The frames are the bytes this process put on stdout, verbatim apart from the temporary config path, written here as <temp>/jey-config.json.",
+  "generatedBy": "node scripts/mcp_stdio_transcript.mjs",
+  "node": "v24.19.0",
+  "entryPoint": "packages/adapter-mcp/src/main.ts",
+  "config": {
+    "schemaVersion": "1",
+    "mode": "shadow",
+    "provider": {
+      "kind": "mock"
+    },
+    "egress": {
+      "mode": "deny"
+    },
+    "limits": {
+      "deadlineMs": 3000
+    },
+    "features": {},
+    "audit": {}
+  },
+  "exitCodeAfterClientDisconnected": 0,
+  "stderrLines": [
+    "jey-mcp: listening on stdio (mode=shadow provider=mock egress=deny)",
+    "jey-mcp: stdin ended; closing the coordinator and exiting"
+  ],
+  "session": {
+    "initialize": {
+      "result": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {
+          "tools": {}
+        },
+        "serverInfo": {
+          "name": "jev",
+          "version": "0.0.0"
+        },
+        "instructions": "Jev answers judgement questions about work you describe. It never executes anything, never changes your policy or your credentials, and labels a synthetic or declined answer instead of presenting it as a verdict."
+      },
+      "jsonrpc": "2.0",
+      "id": 1
+    },
+    "toolsListed": [
+      {
+        "name": "jev_check",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      },
+      {
+        "name": "jev_choose",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      },
+      {
+        "name": "jev_rank",
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    ],
+    "successfulCall": "{\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\\"requestId\\\":\\\"req_514fb859-fda4-4dc9-9af6-e7171ae38238\\\",\\\"provider\\\":{\\\"kind\\\":\\\"mock\\\",\\\"resolvedModel\\\":\\\"mock-static\\\",\\\"synthetic\\\":true},\\\"kind\\\":\\\"boolean\\\",\\\"claim\\\":\\\"this file is a test fixture\\\",\\\"pYes\\\":0.5,\\\"probability\\\":{\\\"origin\\\":\\\"synthetic\\\",\\\"calibration\\\":\\\"uncalibrated\\\",\\\"calibrationId\\\":null},\\\"abstained\\\":false}\"}],\"structuredContent\":{\"requestId\":\"req_514fb859-fda4-4dc9-9af6-e7171ae38238\",\"provider\":{\"kind\":\"mock\",\"resolvedModel\":\"mock-static\",\"synthetic\":true},\"kind\":\"boolean\",\"claim\":\"this file is a test fixture\",\"pYes\":0.5,\"probability\":{\"origin\":\"synthetic\",\"calibration\":\"uncalibrated\",\"calibrationId\":null},\"abstained\":false}},\"jsonrpc\":\"2.0\",\"id\":3}",
+    "malformedArguments": "{\"jsonrpc\":\"2.0\",\"id\":4,\"error\":{\"code\":-32602,\"message\":\"MCP error -32602: / must have required property 'evidence'\"}}",
+    "unknownTool": "{\"jsonrpc\":\"2.0\",\"id\":5,\"error\":{\"code\":-32601,\"message\":\"MCP error -32601: unknown tool \\\"jey_execute\\\"\"}}"
+  },
+  "rawFrames": [
+    "[object Object]",
+    "[object Object]",
+    "[object Object]",
+    "[object Object]",
+    "[object Object]"
+  ]
+}

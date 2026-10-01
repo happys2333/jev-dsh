@@ -56,19 +56,19 @@ importers:
       '@deepseek-ai/dsh-user-approval':
         specifier: 0.1.7-alpha.1
         version: 0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-agent@0.1.7-alpha.1(tgwwl3attscbdqnm6uphsboa7i))(@deepseek-ai/dsh-brand@0.1.7-alpha.2(@deepseek-ai/cordis@4.0.3))(@deepseek-ai/dsh-invariants@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))(@deepseek-ai/dsh-llm@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))(@deepseek-ai/dsh-scope@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-invariants@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)))(@deepseek-ai/dsh-session@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-scope@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-invariants@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))))(@deepseek-ai/dsh-system-prompt@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-invariants@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))(@deepseek-ai/dsh-llm@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))(@deepseek-ai/dsh-scope@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3)(@deepseek-ai/dsh-invariants@0.1.7-alpha.1(@deepseek-ai/cordis@4.0.3))))
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
-      jey-core:
+      jev-core:
         specifier: workspace:*
         version: link:../core
-      jey-provider-local:
+      jev-provider-local:
         specifier: workspace:*
         version: link:../provider-local
-      jey-provider-mock:
+      jev-provider-mock:
         specifier: workspace:*
         version: link:../provider-mock
-      jey-provider-typesafe:
+      jev-provider-typesafe:
         specifier: workspace:*
         version: link:../provider-typesafe
     devDependencies:
@@ -87,16 +87,16 @@ importers:
       ajv:
         specifier: 8.17.1
         version: 8.17.1
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
-      jey-core:
+      jev-core:
         specifier: workspace:*
         version: link:../core
-      jey-provider-local:
+      jev-provider-local:
         specifier: workspace:*
         version: link:../provider-local
-      jey-provider-mock:
+      jev-provider-mock:
         specifier: workspace:*
         version: link:../provider-mock
     devDependencies:
@@ -114,7 +114,7 @@ importers:
       ajv:
         specifier: 8.17.1
         version: 8.17.1
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
@@ -124,10 +124,10 @@ importers:
 
   packages/provider-local:
     dependencies:
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
-      jey-core:
+      jev-core:
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -140,7 +140,7 @@ importers:
 
   packages/provider-mock:
     dependencies:
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:
@@ -153,7 +153,7 @@ importers:
 
   packages/provider-typesafe:
     dependencies:
-      jey-contracts:
+      jev-contracts:
         specifier: workspace:*
         version: link:../contracts
     devDependencies:

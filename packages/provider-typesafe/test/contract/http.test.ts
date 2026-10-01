@@ -7,7 +7,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { DecisionRequest, Question } from 'jey-contracts'
+import type { DecisionRequest, Question } from 'jev-contracts'
 import { JEV_ENDPOINT, ProviderError, TypesafeProvider } from '../../src/index.ts'
 
 const SECRET = 'tsk_live_never_log_me'
@@ -148,4 +148,36 @@ test('cancelling the caller aborts the request rather than only discarding the a
   assert.ok(error instanceof ProviderError, `expected ProviderError, got ${String(error)}`)
   assert.equal(error.code, 'CANCELLED')
   assert.equal(outbound?.aborted, true, 'the outbound fetch must have been signalled too')
+})
+
+test('WIRE-08 cloud streaming body is bounded and cancelled', async () => {
+  let pulls = 0
+  let cancelled = false
+  const fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+    pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(65_536)) },
+    cancel() { cancelled = true },
+  }))) as typeof globalThis.fetch
+  assert.equal((await failure(provider(fetch))).code, 'INVALID_RESPONSE')
+  assert.ok(pulls < 40, `consumed ${pulls} chunks`)
+  assert.equal(cancelled, true)
+})
+
+test('cloud deadline stays active after headers until the body ends', {timeout: 2000}, async () => {
+  let cancelled = false
+  const fetch = (async () => new Response(new ReadableStream<Uint8Array>({cancel() { cancelled = true }}))) as typeof globalThis.fetch
+  const p = new TypesafeProvider({model: 'jev-latest', credential: () => SECRET, fetchImpl: fetch, requestTimeoutMs: 20})
+  assert.equal((await failure(p)).code, 'TIMEOUT')
+  assert.equal(cancelled, true)
+})
+
+test('cloud caller cancellation still works after headers', {timeout: 2000}, async () => {
+  let cancelled = false
+  const controller = new AbortController()
+  const fetch = (async () => {
+    setTimeout(() => controller.abort(), 10)
+    return new Response(new ReadableStream<Uint8Array>({cancel() { cancelled = true }}))
+  }) as typeof globalThis.fetch
+  await assert.rejects(provider(fetch).evaluate(request, {signal: controller.signal}), (error: unknown) =>
+    error instanceof ProviderError && error.code === 'CANCELLED')
+  assert.equal(cancelled, true)
 })

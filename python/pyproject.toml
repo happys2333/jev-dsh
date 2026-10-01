@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jey-local-decider"
+name = "jev-local-decider"
 version = "0.0.0"
-description = "Loopback-only structured decision service for Jey, on pinned CPU GGUF weights"
+description = "Loopback-only structured decision service for Jev, on pinned CPU GGUF weights"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,8 +16,13 @@ dependencies = [
 ]
 
 [project.scripts]
+jev-local-decider = "local_decider.service:main"
+jev-local-weights = "local_decider.download_weights:main"
 jey-local-decider = "local_decider.service:main"
 jey-local-weights = "local_decider.download_weights:main"
 
 [tool.setuptools.packages.find]
 include = ["local_decider*"]
+
+[tool.setuptools.package-data]
+local_decider = ["models.lock.json"]

@@ -1,4 +1,4 @@
-"""Wire validation for Jey's loopback decision protocol.
+"""Wire validation for Jev's loopback decision protocol.
 
 The TypeScript client (`packages/provider-local`) validates responses; this
 module is the server-side mirror of `packages/core/src/validate.ts` for
@@ -12,6 +12,7 @@ import json
 from typing import Any
 
 SCHEMA_VERSION = "1"
+MAX_JSON_DEPTH = 128
 
 PURPOSES = frozenset({
     "tool-assessment", "tool-relevance", "evidence-check", "explicit-query",
@@ -86,6 +87,27 @@ def loads(body: bytes) -> Any:
         text = body.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ProtocolError("INVALID_INPUT", ["<body>"], f"body is not valid UTF-8: {error}") from error
+    # Decoder recursion limits vary across Python versions. Check a stable bound
+    # before parsing, ignoring brackets inside strings and escaped quotes.
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ProtocolError("INVALID_INPUT", ["<body>"], "body is nested too deeply")
+        elif char in "]}":
+            depth -= 1
     try:
         return json.loads(text, parse_constant=_finite_constant)
     except RecursionError as error:

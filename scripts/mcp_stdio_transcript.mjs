@@ -75,9 +75,9 @@ const initialize = await call('initialize', {
 send({ jsonrpc: '2.0', method: 'notifications/initialized' })
 const listed = await call('tools/list')
 const answered = await call('tools/call', {
-  name: 'jey_check', arguments: { claim: 'this file is a test fixture', evidence: 'it asserts on its own output' },
+  name: 'jev_check', arguments: { claim: 'this file is a test fixture', evidence: 'it asserts on its own output' },
 })
-const malformed = await call('tools/call', { name: 'jey_check', arguments: { claim: 'only a claim' } })
+const malformed = await call('tools/call', { name: 'jev_check', arguments: { claim: 'only a claim' } })
 const unknown = await call('tools/call', { name: 'jey_execute', arguments: { command: 'anything' } })
 
 // The client hanging up is the disconnect the docs describe; the exit code is the claim.

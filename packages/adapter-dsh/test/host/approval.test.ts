@@ -4,7 +4,7 @@
  * The previous evidence only proved the *degrade* (no `approval` service composed ⇒ ask
  * becomes a denial). This file composes `@deepseek-ai/dsh-user-approval` itself and shows
  * what a grant does, what a refusal does, and what "nobody answered" does — the three
- * outcomes Jey cannot see in its own return value and must read back from the host's
+ * outcomes Jev cannot see in its own return value and must read back from the host's
  * durable audit pair.
  *
  * @module
@@ -19,9 +19,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { scanJournal, type AuditEvent, type AuditExecution, type Auditable, type LineSink } from 'jey-core'
+import { scanJournal, type AuditEvent, type AuditExecution, type Auditable, type LineSink } from 'jev-core'
 import { mountJey, type JeyRuntime } from '../../src/jey-plugin.ts'
-import { MockProvider } from 'jey-provider-mock'
+import { MockProvider } from 'jev-provider-mock'
 import { probeTool, probeToolBodyCalls, resetProbeToolBodyCalls } from '../../src/probe-tool.ts'
 import { PROBE_LLM_ROUTE, scriptedLlmPlugin } from '../../src/scripted-llm.ts'
 
@@ -91,7 +91,7 @@ function config(): Record<string, unknown> {
     },
     egress: { mode: 'local-only', allowedPurposes: ['tool-assessment'], allowedOrigins: ['http://127.0.0.1:9'] },
     limits: {},
-    // Both switches are required: `approvalRequests` is what lets Jey initiate a prompt at
+    // Both switches are required: `approvalRequests` is what lets Jev initiate a prompt at
     // all, and the host has to expose the channel. Turning either off degrades to a denial.
     features: { toolAssessment: true, approvalRequests: true },
     audit: {},
@@ -133,7 +133,7 @@ function pair(lines: readonly string[]): { decision: AuditEvent, execution: Audi
   return { decision: found, execution: other !== undefined && other.kind === 'execution' ? other : undefined }
 }
 
-describe('Jey hands its ask decision to the real approval service', () => {
+describe('Jev hands its ask decision to the real approval service', () => {
   it('runs the call when a composed answerer grants it', async () => {
     const loop = await mountLoop({ answer: 'allowed-once' })
     await runTurn(loop.ctx, loop.agent, 'note this down')
@@ -144,7 +144,7 @@ describe('Jey hands its ask decision to the real approval service', () => {
     const { decision, execution } = pair(loop.lines)
     assert.ok(execution, 'a granted call must still produce an execution row')
     assert.equal(execution.status, 'succeeded')
-    assert.equal(execution.appliedAction, 'ask', 'the row must say Jey asked, not that Jey allowed')
+    assert.equal(execution.appliedAction, 'ask', 'the row must say Jev asked, not that Jev allowed')
     assert.equal(execution.requestId, decision.requestId)
     assert.equal(decision.hostDecision, 'allow', 'the inner waterfall chain allowed; the approval came after')
     await loop.ctx.fiber.dispose()
@@ -165,7 +165,7 @@ describe('Jey hands its ask decision to the real approval service', () => {
 
   it('fails closed through the service when no answerer is composed', async () => {
     // The service is mounted but nobody answers, so the host's own terminal default is
-    // `unavailable`. Jey must report that as a denial with its real cause.
+    // `unavailable`. Jev must report that as a denial with its real cause.
     const loop = await mountLoop()
     await runTurn(loop.ctx, loop.agent, 'note this down')
 
@@ -211,7 +211,7 @@ describe('Jey hands its ask decision to the real approval service', () => {
   })
 
   it('opens exactly one approval question per decision', async () => {
-    // Jey hands the ask to the host rather than running a prompt of its own, so a second
+    // Jev hands the ask to the host rather than running a prompt of its own, so a second
     // question for the same call would mean two channels deciding the same thing.
     let asks = 0
     const loop = await mountLoop({ answer: 'allowed-once', asks: () => { asks += 1 } })

@@ -1,0 +1,6 @@
+Command: JEY_RUN_INFERENCE=1 python/.venv/bin/python -m unittest discover -s python/tests -t python
+Ran 70 tests in 26.628s
+
+OK
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+sys:1: ResourceWarning: unclosed file <_io.TextIOWrapper name='/dev/null' mode='w' encoding='UTF-8'>

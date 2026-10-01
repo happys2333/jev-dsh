@@ -1,5 +1,5 @@
 /**
- * Jey-shaped probe plugin: observes the DSH tool/prompt/step extension points on a
+ * Jev-shaped probe plugin: observes the DSH tool/prompt/step extension points on a
  * real agent loop and records what actually happens into an ordered in-memory trace.
  *
  * Every listener is annotated with the published `Events['<name>']` signature it claims to

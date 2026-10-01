@@ -1,7 +1,7 @@
 import type {
   DecisionProvider, DecisionRequest, DecisionResponse, ProviderCapabilities, ProviderIdentity,
   ProbabilityMetadata, Question, QuestionOutcome,
-} from 'jey-contracts'
+} from 'jev-contracts'
 
 /**
  * A synthetic provider, for the engineering gates only.

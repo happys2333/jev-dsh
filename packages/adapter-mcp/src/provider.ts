@@ -11,10 +11,10 @@
  * @module
  */
 import { readFileSync } from 'node:fs'
-import type { DecisionProvider } from 'jey-contracts'
-import { LocalProvider } from 'jey-provider-local'
-import { MockProvider } from 'jey-provider-mock'
-import type { JeyConfig } from 'jey-core'
+import type { DecisionProvider } from 'jev-contracts'
+import { LocalProvider } from 'jev-provider-local'
+import { MockProvider } from 'jev-provider-mock'
+import type { JeyConfig } from 'jev-core'
 
 /** The credentials a deployment configured, resolved the same way the DSH adapter does. */
 export function resolveCredential(reference: string | undefined): string | undefined {

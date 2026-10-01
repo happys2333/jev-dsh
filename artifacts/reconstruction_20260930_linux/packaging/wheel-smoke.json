@@ -1,0 +1,9 @@
+{
+  "modelLockBundled": true,
+  "lockPath": "/workspace/scratch/77623b5f7312/jev-dsh/.work/packaging/wheel-consumer/lib/python3.12/site-packages/local_decider/models.lock.json",
+  "sourceFreeImport": true,
+  "dependencyMode": "no-deps: package data and CLI only, not full inference install",
+  "explicitDataRootRequired": true,
+  "local_decider.serviceHelp": true,
+  "local_decider.download_weightsHelp": true
+}

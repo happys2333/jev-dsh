@@ -1,4 +1,4 @@
-import type { JsonValue, ProviderKind, Purpose } from 'jey-contracts'
+import type { JsonValue, ProviderKind, Purpose } from 'jev-contracts'
 
 /**
  * Egress policy, spec section 5.3. Installed locally, running in shadow, or

@@ -1,8 +1,8 @@
 {
-  "name": "jey-provider-typesafe",
+  "name": "jev-provider-typesafe",
   "version": "0.0.0",
   "private": true,
-  "description": "Jey provider for the official TypeSafe / Jev systemone API, validated against fixtures rather than casts.",
+  "description": "Jev provider for the official TypeSafe / Jev systemone API, validated against fixtures rather than casts.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -15,7 +15,13 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts.map",
+    "src/**/*.ts"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.typecheck.json",
@@ -23,7 +29,7 @@
     "test:property": "echo \"no property tests in this package\" && exit 0"
   },
   "dependencies": {
-    "jey-contracts": "workspace:*"
+    "jev-contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.19.1",

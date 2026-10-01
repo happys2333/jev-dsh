@@ -26,13 +26,13 @@ const FORGED_KEYS = [
 ] as const
 
 const VALID_ARGS: Record<string, Record<string, unknown>> = {
-  jey_check: { claim: 'the file is a test fixture', evidence: 'it asserts on its own output' },
-  jey_choose: {
+  jev_check: { claim: 'the file is a test fixture', evidence: 'it asserts on its own output' },
+  jev_choose: {
     instruction: 'pick one', options: [
       { id: 'a', description: 'first' }, { id: 'b', description: 'second' },
     ],
   },
-  jey_rank: { instruction: 'which is safer', candidates: [{ id: 'x', text: 'a sandbox' }] },
+  jev_rank: { instruction: 'which is safer', candidates: [{ id: 'x', text: 'a sandbox' }] },
 }
 
 function schemaOf(name: string): Record<string, unknown> {
@@ -41,7 +41,7 @@ function schemaOf(name: string): Record<string, unknown> {
 
 describe('mcp advertised surface', () => {
   it('publishes exactly the three v1 tools, under the names this repository ships', () => {
-    assert.deepEqual([...MCP_TOOL_NAMES], ['jey_check', 'jey_choose', 'jey_rank'])
+    assert.deepEqual([...MCP_TOOL_NAMES], ['jev_check', 'jev_choose', 'jev_rank'])
     // The handoff called these `adl_*`. The rename is recorded, not silently dropped: a
     // client configured from the handoff needs to know which name replaced which.
     assert.deepEqual(Object.values(LEGACY_TOOL_NAMES), ['adl_check', 'adl_choose', 'adl_rank'])
@@ -92,7 +92,7 @@ describe('mcp advertised surface', () => {
     for (const file of files) {
       const text = readFileSync(join(sourceDir, file), 'utf8')
       assert.ok(!text.includes('@deepseek-ai/'), `${file} imports DSH: the MCP adapter must run without it`)
-      assert.ok(!text.includes('jey-adapter-dsh'), `${file} imports the DSH adapter`)
+      assert.ok(!text.includes('jev-adapter-dsh'), `${file} imports the DSH adapter`)
     }
   })
 

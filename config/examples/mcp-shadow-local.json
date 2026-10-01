@@ -21,7 +21,7 @@
     "allowedOrigins": ["http://127.0.0.1:8732"],
     "allowedPurposes": ["evidence-check", "explicit-query", "tool-relevance"]
   },
-  "limits": { "deadlineMs": 10000, "maxConcurrent": 1 },
+  "limits": { "deadlineMs": 60000, "maxConcurrent": 1 },
   "features": {},
   "audit": {}
 }

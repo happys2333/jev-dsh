@@ -2,7 +2,7 @@
  * The MCP tools' behaviour: validate against the published schema, build the same snapshot
  * and budget the DSH adapter builds, respect the same egress policy, and hand the request to
  * the same coordinator. Nothing here is a second, softer copy of those rules — that is the
- * reason the tools sit next to `jey-core` instead of in front of their own transport.
+ * reason the tools sit next to `jev-core` instead of in front of their own transport.
  *
  * @module
  */
@@ -12,19 +12,19 @@ import type { ValidateFunction } from 'ajv'
 import type {
   Answer, DecisionProvider, DecisionRequest, DecisionResponse, JsonValue, Purpose, Question,
   QuestionOutcome,
-} from 'jey-contracts'
+} from 'jev-contracts'
 import {
   DecisionCoordinator, assertSupported, buildSnapshot, checkEgress, fitToBudget, utf8Bytes,
   type CoordinatorOutcome, type JeyConfig, type SnapshotFacts, type StateSection,
-} from 'jey-core'
-import { LocalError } from 'jey-provider-local'
+} from 'jev-core'
+import { LocalError } from 'jev-provider-local'
 import { DEFAULT_RANK_LEVELS, TOOL_INPUT_SCHEMAS, type McpToolName } from './schema.ts'
 
 /** Each tool has one fixed purpose; a caller cannot choose one to dodge a per-purpose rule. */
 const PURPOSE: Readonly<Record<McpToolName, Purpose>> = {
-  jey_check: 'evidence-check',
-  jey_choose: 'explicit-query',
-  jey_rank: 'tool-relevance',
+  jev_check: 'evidence-check',
+  jev_choose: 'explicit-query',
+  jev_rank: 'tool-relevance',
 }
 
 const CHECK_QUESTION_ID = 'claim-holds'
@@ -85,7 +85,7 @@ function buildQuestions(name: McpToolName, input: Fields): {
   readonly sections: readonly StateSection[]
   readonly levels: readonly string[]
 } {
-  if (name === 'jey_check') {
+  if (name === 'jev_check') {
     const claim = string(input.claim)
     const evidence = string(input.evidence)
     return {
@@ -103,7 +103,7 @@ function buildQuestions(name: McpToolName, input: Fields): {
     }
   }
 
-  if (name === 'jey_choose') {
+  if (name === 'jev_choose') {
     const instruction = string(input.instruction)
     const options = listOf(input.options).map(o => fields(o))
     return {
@@ -340,7 +340,7 @@ function shapeResult(
   levels: readonly string[],
 ): Record<string, JsonValue> {
   const header = { requestId: request.requestId, provider: providerHeader(response) }
-  if (name === 'jey_check') {
+  if (name === 'jev_check') {
     const answer = answered(response.outcomes, CHECK_QUESTION_ID, 'boolean')
     return {
       ...header, kind: 'boolean', claim: string(input.claim),
@@ -352,7 +352,7 @@ function shapeResult(
       abstained: answer === null,
     }
   }
-  if (name === 'jey_choose') {
+  if (name === 'jev_choose') {
     const answer = answered(response.outcomes, CHOICE_QUESTION_ID, 'choice')
     return {
       ...header, kind: 'choice', instruction: string(input.instruction),

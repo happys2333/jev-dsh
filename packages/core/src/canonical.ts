@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import type { JsonValue } from 'jey-contracts'
+import type { JsonValue } from 'jev-contracts'
 
 /**
- * Deterministic digests. Every "did anything relevant change" question in Jey is
+ * Deterministic digests. Every "did anything relevant change" question in Jev is
  * answered by comparing two of these, so the encoding has to be stable across
  * runs and independent of key insertion order.
  */

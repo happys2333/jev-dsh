@@ -5,7 +5,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { ProviderIdentity, QuestionOutcome } from 'jey-contracts'
+import type { ProviderIdentity, QuestionOutcome } from 'jev-contracts'
 import { calibrationApplies, evaluatePolicy, sameDigest } from '../../src/index.ts'
 
 const IDENTITY: ProviderIdentity = {

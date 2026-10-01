@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as fc from 'fast-check'
-import type { JsonValue } from 'jey-contracts'
+import type { JsonValue } from 'jev-contracts'
 import {
   DEFAULT_PROGRESS_CONFIG,
   EMPTY_PROGRESS,

@@ -1,7 +1,8 @@
+import { readBoundedJson } from './response-body.ts'
 import type {
   Answer, DecisionProvider, DecisionRequest, DecisionResponse, ErrorCode, JsonValue,
   ProviderCapabilities, ProviderIdentity, Question, QuestionOutcome,
-} from 'jey-contracts'
+} from 'jev-contracts'
 
 /**
  * Official Jev / TypeSafe provider.
@@ -286,8 +287,9 @@ export class TypesafeProvider implements DecisionProvider {
     const onAbort = (): void => controller.abort(context.signal.reason)
     if (context.signal.aborted) onAbort()
     else context.signal.addEventListener('abort', onAbort, { once: true })
-    const timer = setTimeout(() => controller.abort(new Error('jev-deadline')), this.#options.requestTimeoutMs ?? 10_000)
+    const timer = setTimeout(() => controller.abort(new Error('jev-deadline')), Math.max(1, Math.min(this.#options.requestTimeoutMs ?? 10_000, request.budget.maxElapsedMs)))
 
+    try {
     let response: Response
     try {
       response = await fetchImpl(JEV_ENDPOINT, {
@@ -299,10 +301,8 @@ export class TypesafeProvider implements DecisionProvider {
       })
     } catch (e) {
       if (context.signal.aborted) throw new ProviderError('CANCELLED', false, 'caller cancelled before the provider answered')
+      if (controller.signal.aborted) throw new ProviderError('TIMEOUT', false, 'provider response deadline exceeded')
       throw new ProviderError('OVERLOADED', true, `transport failure: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      clearTimeout(timer)
-      context.signal.removeEventListener('abort', onAbort)
     }
 
     if (response.status >= 300 && response.status < 400) {
@@ -316,15 +316,21 @@ export class TypesafeProvider implements DecisionProvider {
 
     let body: unknown
     try {
-      body = await response.json()
+      body = await readBoundedJson(response, controller.signal)
     } catch {
-      throw new ProviderError('INVALID_RESPONSE', false, 'provider responded with a non-JSON body')
+      if (context.signal.aborted) throw new ProviderError('CANCELLED', false, 'caller cancelled while reading provider response')
+      if (controller.signal.aborted) throw new ProviderError('TIMEOUT', false, 'provider response deadline exceeded')
+      throw new ProviderError('INVALID_RESPONSE', false, 'provider responded with a non-JSON or oversized body')
     }
     const parsed = parseResponse(request, body, this.#options.model)
     return {
       ...parsed,
       provider: { ...parsed.provider },
       egress: { occurred: true, destinationId: this.#destinationId },
+    }
+    } finally {
+      clearTimeout(timer)
+      context.signal.removeEventListener('abort', onAbort)
     }
   }
 
